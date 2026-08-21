@@ -49,7 +49,6 @@ import {
   toCachedSpan,
   type CachedTranscriptWindow,
 } from "./chatTranscriptCache"
-import { CLOUD_WS_ENDPOINT_PATH, type CloudWsEndpointResponse } from "../../shared/cloud-api"
 import { KannaSocket, type SocketStatus } from "./socket"
 import { useAppSettingsSync } from "./useAppSettingsSync"
 import { useChatCommands } from "./useChatCommands"
@@ -95,38 +94,9 @@ const EMPTY_TRANSCRIPT_ENTRIES: TranscriptEntry[] = []
  */
 const CACHED_WINDOW_READ_BUDGET_MS = 250
 
-function sameOriginWsUrl() {
+async function sameOriginWsUrl(): Promise<string> {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
   return `${protocol}//${window.location.host}/ws`
-}
-
-/**
- * Resolved before every (re)connect. The machine always serves
- * /api/cloud/ws-endpoint: through the kanna.sh proxy it returns the direct
- * tunnel URL plus a fresh short-lived connect token (so the WebSocket
- * bypasses the proxy); locally it returns wsUrl null and we connect
- * same-origin. Any failure falls back to same-origin, keeping local behavior
- * unchanged.
- */
-async function wsUrlProvider(): Promise<string> {
-  try {
-    const response = await fetch(CLOUD_WS_ENDPOINT_PATH, {
-      headers: { Accept: "application/json" },
-    })
-    if (response.ok) {
-      const payload = await response.json() as CloudWsEndpointResponse
-      if (payload.wsUrl) {
-        const url = new URL(payload.wsUrl)
-        if (payload.connectToken) {
-          url.searchParams.set("token", payload.connectToken)
-        }
-        return url.toString()
-      }
-    }
-  } catch {
-    // Endpoint unreachable — connect same-origin.
-  }
-  return sameOriginWsUrl()
 }
 
 /**
@@ -134,13 +104,13 @@ async function wsUrlProvider(): Promise<string> {
  * callback popup) — same URL resolution as the main app socket.
  */
 export function createStandaloneKannaSocket() {
-  return new KannaSocket(wsUrlProvider)
+  return new KannaSocket(sameOriginWsUrl)
 }
 
 function useKannaSocket() {
   const socketRef = useRef<KannaSocket | null>(null)
   if (!socketRef.current) {
-    socketRef.current = new KannaSocket(wsUrlProvider)
+    socketRef.current = new KannaSocket(sameOriginWsUrl)
   }
 
   useEffect(() => {
@@ -187,7 +157,7 @@ export interface KannaState {
   canCancel: boolean
   isDraining: boolean
   isExportingStandalone: boolean
-  standaloneShareUrl: string | null
+  standaloneExportPath: string | null
   standaloneShareComplete: boolean
   navbarLocalPath?: string
   /**
@@ -208,8 +178,6 @@ export interface KannaState {
   handleCreateProject: (project: ProjectRequest) => Promise<void>
   handleCheckForUpdates: (options?: { force?: boolean }) => Promise<void>
   handleInstallUpdate: () => Promise<void>
-  handleInstallNightly: () => Promise<void>
-  handleInstallStable: () => Promise<void>
   handleReadAppSettings: () => Promise<void>
   handleWriteAppSettings: (patch: AppSettingsPatch) => Promise<void>
   handleReadLlmProvider: () => Promise<void>
@@ -250,8 +218,7 @@ export interface KannaState {
   ) => Promise<void>
   handleExportStandalone: (chatId?: string | null) => Promise<StandaloneTranscriptExportCommandResult | null>
   handleCloseStandaloneShareDialog: () => void
-  handleOpenStandaloneShareLink: () => void
-  handleCopyStandaloneShareLink: () => Promise<boolean>
+  handleCopyStandaloneExportPath: () => Promise<boolean>
 }
 
 export function useKannaState(activeChatId: string | null): KannaState {
@@ -316,7 +283,7 @@ export function useKannaState(activeChatId: string | null): KannaState {
     })
   }, [socket])
 
-  const { updateSnapshot, handleCheckForUpdates, handleInstallUpdate, handleInstallNightly, handleInstallStable } = useUpdateRestart({
+  const { updateSnapshot, handleCheckForUpdates, handleInstallUpdate } = useUpdateRestart({
     socket,
     connectionStatus,
     dialog,
@@ -869,13 +836,12 @@ export function useKannaState(activeChatId: string | null): KannaState {
 
   const {
     isExportingStandalone,
-    standaloneShareUrl,
+    standaloneExportPath,
     standaloneShareComplete,
     handleExportStandalone,
     handleShareChat,
     handleCloseStandaloneShareDialog,
-    handleCopyStandaloneShareLink,
-    handleOpenStandaloneShareLink,
+    handleCopyStandaloneExportPath,
   } = useShareExport({ socket, activeChatId, resolvedTheme, dialog, setCommandError })
 
   const handleCompose = useCallback(() => {
@@ -928,7 +894,7 @@ export function useKannaState(activeChatId: string | null): KannaState {
     canCancel,
     isDraining,
     isExportingStandalone,
-    standaloneShareUrl,
+    standaloneExportPath,
     standaloneShareComplete,
     navbarLocalPath,
     navbarRepoLabel,
@@ -944,8 +910,6 @@ export function useKannaState(activeChatId: string | null): KannaState {
     handleCreateProject,
     handleCheckForUpdates,
     handleInstallUpdate,
-    handleInstallNightly,
-    handleInstallStable,
     handleReadAppSettings,
     handleWriteAppSettings,
     handleReadLlmProvider,
@@ -977,7 +941,6 @@ export function useKannaState(activeChatId: string | null): KannaState {
     handleExitPlanMode,
     handleExportStandalone,
     handleCloseStandaloneShareDialog,
-    handleOpenStandaloneShareLink,
-    handleCopyStandaloneShareLink,
+    handleCopyStandaloneExportPath,
   }
 }

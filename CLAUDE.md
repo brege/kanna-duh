@@ -1,13 +1,17 @@
-# Kanna — development notes
+# kanna-duh — development notes
 
-Kanna is a local web UI for coding agents (Claude Code, Codex, Cursor, Pi).
-Bun server + React 19 client, talking over one WebSocket.
+kanna-duh is a local web UI for coding agents (Claude Code, Codex, Cursor, Pi).
+Bun server + React 19 client, talking over one WebSocket. It is the libre fork
+of Kanna: analytics, attribution, cloud, promotion, and silent self-update are
+removed, and `docs/libre-policy.md` is binding on every change here.
 
 ## Commands
 
-- `bun run dev` — client (Vite) + server together
+- `bun run dev` — client (Vite) + server together (`--port N` sets the client
+  port; the backend runs on N+1)
 - `bun test` — unit/integration suite (Bun test)
-- `bun run check` — typecheck + both production builds
+- `bun run check` — typecheck + anti-feature policy + both production builds
+- `bun run check:policy` — anti-feature policy check on its own
 - `bun run build` — client + export-viewer bundles
 
 ## How it fits together
@@ -47,22 +51,24 @@ React client (src/client)
   and prefer targeted `broadcastFilteredSnapshots({...})` over full
   broadcasts (name exactly the topics the command can change).
 - Tests live next to their module (`foo.ts` / `foo.test.ts`) and run in Bun.
-  The `.e2e.ts` suffix keeps a file out of `bun test`'s default sweep (used
-  by the cloud wire e2e).
-- When tests need git, they create throwaway repos; in sandboxes set
-  `GIT_CONFIG_GLOBAL` to a clean config so URL rewrites/identity don't leak in.
+  The `.e2e.ts` suffix keeps a file out of `bun test`'s default sweep; no file
+  currently uses it.
+- When tests need git, they create throwaway repos, so a global git config
+  with `commit.gpgsign`, `merge.ff`, or URL rewrites will leak in and fail
+  them. Point `GIT_CONFIG_GLOBAL` at an empty file when running the suite.
 
-## Cloud contract
+## Anti-feature policy
 
-- `src/shared/cloud-api.ts` is the wire contract with the hosted control
-  plane/proxy (kanna-site, a separate private repo that deploys
-  independently). It is **append-only**: never remove or rename a field or
-  constant; add optional fields only — machines in the wild must keep working.
-  The file is mirrored verbatim at `kanna-site/src/shared/cloud-api.ts`; keep
-  the two copies identical when changing either.
-- The machine side lives in `src/server/cloud/` (identity file, control-plane
-  client, tunnel supervisor, request guard). The hosted proxy sees proxied
-  HTTP but never WebSocket frames — the browser's WS connects directly to the
-  machine's tunnel.
-- `bun run test:cloud` runs the cross-repo wire e2e against a local
-  `wrangler dev` of `../kanna-site` (skips if the sibling repo is missing).
+`docs/libre-policy.md` is the fork's reason to exist, and `bun run check:policy`
+enforces the mechanical part. Before adding anything that talks to the network,
+persists an identifier, writes to a commit or PR, or appends to a provider
+prompt, read it.
+
+- `PACKAGE_NAME` in `src/shared/branding.ts` is `kanna-duh`. If it ever reverts
+  to `kanna-code`, the Settings update action installs upstream over this fork
+  and restores every removed anti-feature.
+- New outbound hosts need an explicit entry in the allowlist inside
+  `scripts/check-libre-policy.ts`. That edit is meant to be visible in review.
+- On an upstream rebase, run `bun run check:policy` first. It catches verbatim
+  reintroduction only; an anti-feature that upstream renames or restructures
+  needs a hand review of the delta.

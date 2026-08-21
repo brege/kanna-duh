@@ -146,9 +146,6 @@ export interface StandaloneTranscriptExportResult {
   attachmentMode: StandaloneTranscriptAttachmentMode
   totalAttachmentCount: number
   bundledAttachmentCount: number
-  shareSlug: string
-  shareUrl: string
-  uploadedFileCount: number
 }
 
 export interface StandaloneTranscriptExportFailureResult {
@@ -158,8 +155,6 @@ export interface StandaloneTranscriptExportFailureResult {
   transcriptJsonPath: string
   transcriptFileName: string
   transcriptJson: string
-  shareSlug: string
-  shareUrl: string
 }
 
 export type StandaloneTranscriptExportCommandResult =
@@ -1062,7 +1057,6 @@ export interface GitHubRecentReposResult {
 }
 
 export interface AppSettingsSnapshot {
-  analyticsEnabled: boolean
   browserSettingsMigrated: boolean
   theme: AppThemePreference
   chatSoundPreference: ChatSoundPreference
@@ -1093,16 +1087,9 @@ export interface AppSettingsSnapshot {
   setupDismissed: boolean
   warning: string | null
   filePathDisplay: string
-  /**
-   * Server-computed, never persisted: this machine is a cloud dev-box
-   * (`kanna --cloud`, or KANNA_DEVBOX_UI=1 in dev). Unlocks dev-box-only UI
-   * like the full-screen home Terminal page.
-   */
-  devbox: boolean
 }
 
 export interface AppSettingsPatch {
-  analyticsEnabled?: boolean
   browserSettingsMigrated?: boolean
   theme?: AppThemePreference
   chatSoundPreference?: ChatSoundPreference

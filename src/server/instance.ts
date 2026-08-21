@@ -1,7 +1,6 @@
 /**
  * Single-instance detection. Two kanna processes sharing one data dir means
- * two writers on the same JSONL logs — and, when paired with kanna.sh, two
- * tunnel connectors load-balancing requests between divergent processes.
+ * two writers on the same JSONL logs.
  *
  * /health exposes a non-reversible fingerprint of the data dir; before
  * starting, the CLI probes its configured port and short-circuits ("already

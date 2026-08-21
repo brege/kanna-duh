@@ -20,8 +20,6 @@ async function createTempFilePath() {
 
 function expectedSettingsSnapshot(filePath: string, overrides: Partial<AppSettingsSnapshot> = {}): AppSettingsSnapshot {
   return {
-    devbox: false,
-    analyticsEnabled: true,
     browserSettingsMigrated: false,
     setupShown: false,
     setupCompleted: false,
@@ -92,36 +90,13 @@ describe("readAppSettingsSnapshot", () => {
     expect(snapshot).toEqual(expectedSettingsSnapshot(filePath))
   })
 
-  test("devbox extra is server-computed: in every snapshot, never persisted", async () => {
-    const filePath = await createTempFilePath()
-    const manager = new AppSettingsManager(filePath, { devbox: true })
-    await manager.initialize()
-    try {
-      expect(manager.getSnapshot().devbox).toBe(true)
-
-      // Survives a settings write and is present on the returned snapshot…
-      const written = await manager.writePatch({ theme: "dark" })
-      expect(written.devbox).toBe(true)
-
-      // …but never lands in the file.
-      const raw = JSON.parse(await readFile(filePath, "utf8")) as Record<string, unknown>
-      expect("devbox" in raw).toBe(false)
-    } finally {
-      manager.dispose()
-    }
-
-    // Default (no extras) is false.
-    const plain = new AppSettingsManager(filePath)
-    expect(plain.getSnapshot().devbox).toBe(false)
-    plain.dispose()
-  })
 
   test("returns a warning when the file contains invalid json", async () => {
     const filePath = await createTempFilePath()
     await writeFile(filePath, "{not-json", "utf8")
 
     const snapshot = await readAppSettingsSnapshot(filePath)
-    expect(snapshot.analyticsEnabled).toBe(true)
+    expect(snapshot.browserSettingsMigrated).toBe(false)
     expect(snapshot.warning).toContain("invalid JSON")
   })
 
@@ -167,42 +142,13 @@ describe("readAppSettingsSnapshot", () => {
 })
 
 describe("AppSettingsManager", () => {
-  test("creates a settings file with analytics enabled and a stable anonymous id", async () => {
+  test("creates a settings file with defaults", async () => {
     const filePath = await createTempFilePath()
     const manager = new AppSettingsManager(filePath)
 
     await manager.initialize()
 
-    const payload = JSON.parse(await readFile(filePath, "utf8")) as {
-      analyticsEnabled: boolean
-      analyticsUserId: string
-    }
-    expect(payload.analyticsEnabled).toBe(true)
-    expect(payload.analyticsUserId).toMatch(/^anon_/)
     expect(manager.getSnapshot()).toEqual(expectedSettingsSnapshot(filePath))
-
-    manager.dispose()
-  })
-
-  test("writes analyticsEnabled without replacing the stored user id", async () => {
-    const filePath = await createTempFilePath()
-    const manager = new AppSettingsManager(filePath)
-
-    await manager.initialize()
-    const initialPayload = JSON.parse(await readFile(filePath, "utf8")) as {
-      analyticsEnabled: boolean
-      analyticsUserId: string
-    }
-
-    const snapshot = await manager.write({ analyticsEnabled: false })
-    const nextPayload = JSON.parse(await readFile(filePath, "utf8")) as {
-      analyticsEnabled: boolean
-      analyticsUserId: string
-    }
-
-    expect(snapshot).toEqual(expectedSettingsSnapshot(filePath, { analyticsEnabled: false }))
-    expect(nextPayload.analyticsEnabled).toBe(false)
-    expect(nextPayload.analyticsUserId).toBe(initialPayload.analyticsUserId)
 
     manager.dispose()
   })
@@ -235,14 +181,11 @@ describe("AppSettingsManager", () => {
     reopened.dispose()
   })
 
-  test("patches expanded settings without replacing the stored user id", async () => {
+  test("patches expanded settings", async () => {
     const filePath = await createTempFilePath()
     const manager = new AppSettingsManager(filePath)
 
     await manager.initialize()
-    const initialPayload = JSON.parse(await readFile(filePath, "utf8")) as {
-      analyticsUserId: string
-    }
 
     const snapshot = await manager.writePatch({
       theme: "dark",
@@ -256,7 +199,6 @@ describe("AppSettingsManager", () => {
       },
     })
     const nextPayload = JSON.parse(await readFile(filePath, "utf8")) as {
-      analyticsUserId: string
       theme: string
       chatSoundId: string
       terminal: { scrollbackLines: number; minColumnWidth: number }
@@ -271,7 +213,6 @@ describe("AppSettingsManager", () => {
     expect(snapshot.editor.preset).toBe("vscode")
     expect(snapshot.editor.commandTemplate).toBe("cursor {path}")
     expect(snapshot.providerDefaults.codex.modelOptions.fastMode).toBe(true)
-    expect(nextPayload.analyticsUserId).toBe(initialPayload.analyticsUserId)
     expect(nextPayload.theme).toBe("dark")
     expect(nextPayload.chatSoundId).toBe("glass")
 

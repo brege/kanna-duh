@@ -1,8 +1,8 @@
 {
-  "name": "kanna-code",
+  "name": "kanna-duh",
   "type": "module",
   "version": "0.63.0",
-  "description": "A beautiful web UI for Claude Code",
+  "description": "A local web UI for coding agents. Libre fork of Kanna, with analytics, attribution, cloud, and promotion removed.",
   "license": "MIT",
   "keywords": [
     "claude",
@@ -17,7 +17,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/jakemor/kanna.git"
+    "url": "git+https://github.com/brege/kanna-duh.git"
   },
   "bin": {
     "kanna": "./bin/kanna"
@@ -38,15 +38,14 @@
     "build:client": "vite build",
     "build:export-viewer": "vite build --config vite.export-viewer.config.ts",
     "prepare:export-viewer-release-assets": "bun run ./scripts/prepare-export-viewer-release-assets.ts",
-    "check": "tsc --noEmit && bun run build:client && bun run build:export-viewer",
+    "check": "tsc --noEmit && bun run check:policy && bun run build:client && bun run build:export-viewer",
+    "check:policy": "bun run ./scripts/check-libre-policy.ts",
     "dev": "bun run ./scripts/dev.ts",
-    "dev:cloud": "KANNA_DEVBOX_UI=1 bun run ./scripts/dev.ts",
     "dev:client": "vite --host 0.0.0.0 --port 5174",
     "dev:server": "bun run ./scripts/dev-server.ts --no-open --port 5175",
     "install:dev": "bun install && bun run build && bun install -g .",
     "start": "bun run ./src/server/cli.ts",
     "test": "bun test",
-    "test:cloud": "bun test ./src/server/cloud/wire.e2e.ts",
     "prepublishOnly": "bun run build"
   },
   "dependencies": {

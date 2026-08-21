@@ -115,7 +115,7 @@ describe("buildHandoffContext", () => {
 
     const text = context!.text
     // Restore preamble, not the "handed off from another agent" one.
-    expect(text).toContain("restored from Kanna's saved transcript")
+    expect(text).toContain("restored from a saved transcript")
     expect(text).not.toContain("handed off to you from another coding agent")
     // The restore boundary renders its own marker.
     expect(text).toContain("--- conversation restored from saved transcript (previous native session unavailable) ---")

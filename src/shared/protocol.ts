@@ -112,12 +112,9 @@ export type ClientCommand =
   | { type: "project.writeQuickActions"; projectId: string; quickActions: ProjectQuickAction[] }
   | { type: "update.check"; force?: boolean }
   | { type: "update.install" }
-  | { type: "update.installNightly" }
-  | { type: "update.installStable" }
   | { type: "settings.readKeybindings" }
   | { type: "settings.writeKeybindings"; bindings: KeybindingsSnapshot["bindings"] }
   | { type: "settings.readAppSettings" }
-  | { type: "settings.writeAppSettings"; analyticsEnabled: boolean }
   | { type: "settings.writeAppSettingsPatch"; patch: AppSettingsPatch }
   | { type: "settings.readLlmProvider" }
   | { type: "usage.refresh"; force?: boolean }

@@ -8,7 +8,7 @@ import { buttonVariants } from "../../components/ui/button"
 import { SettingsHeaderButton } from "../../components/ui/settings-header-button"
 import { cn } from "../../lib/utils"
 
-const GITHUB_RELEASES_URL = "https://api.github.com/repos/jakemor/kanna/releases"
+const GITHUB_RELEASES_URL = "https://api.github.com/repos/brege/kanna-duh/releases"
 const CHANGELOG_CACHE_TTL_MS = 5 * 60 * 1000
 
 export type GithubRelease = {

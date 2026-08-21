@@ -1,7 +1,5 @@
-import { randomBytes } from "node:crypto"
-import type { Dirent } from "node:fs"
 import path from "node:path"
-import { cp as copyPath, copyFile, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises"
+import { cp as copyPath, copyFile, mkdir, stat, writeFile } from "node:fs/promises"
 import type {
   StandaloneTranscriptAttachmentMode,
   StandaloneTranscriptBundle,
@@ -13,28 +11,7 @@ import { APP_VERSION } from "../shared/branding"
 import { getProjectExportDir } from "./paths"
 
 const STANDALONE_TRANSCRIPT_BUNDLE_VERSION = 1 as const
-const STANDALONE_SHARE_UPLOAD_BASE_URL = "https://kanna.sh/api/share"
-const STANDALONE_SHARE_PUBLIC_BASE_URL = "https://share.kanna.sh"
 const STANDALONE_SHARE_WORKSPACE_PATH = "/workspace"
-const STANDALONE_SHARE_ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable"
-const CONTENT_TYPES_BY_EXTENSION: Record<string, string> = {
-  ".css": "text/css; charset=utf-8",
-  ".gif": "image/gif",
-  ".html": "text/html; charset=utf-8",
-  ".ico": "image/x-icon",
-  ".jpeg": "image/jpeg",
-  ".jpg": "image/jpeg",
-  ".js": "text/javascript; charset=utf-8",
-  ".json": "application/json; charset=utf-8",
-  ".manifest": "application/manifest+json; charset=utf-8",
-  ".mp3": "audio/mpeg",
-  ".png": "image/png",
-  ".svg": "image/svg+xml",
-  ".txt": "text/plain; charset=utf-8",
-  ".webmanifest": "application/manifest+json; charset=utf-8",
-  ".webp": "image/webp",
-  ".woff2": "font/woff2",
-}
 
 export interface WriteStandaloneTranscriptExportArgs {
   chatId: string
@@ -50,15 +27,9 @@ export interface StandaloneExportDeps {
   now?: Date
   mkdir?: typeof mkdir
   writeFile?: typeof writeFile
-  readFile?: typeof readFile
   copyDirectory?: (sourceDir: string, targetDir: string) => Promise<void>
   copyFile?: typeof copyFile
-  readDir?: (targetPath: string) => Promise<Dirent[]>
   pathExists?: (targetPath: string) => Promise<boolean>
-  fetch?: FetchLike
-  shareUploadBaseUrl?: string
-  sharePublicBaseUrl?: string
-  shareSlugSuffix?: string
 }
 
 interface PreparedMessagesResult {
@@ -66,8 +37,6 @@ interface PreparedMessagesResult {
   totalAttachmentCount: number
   bundledAttachmentCount: number
 }
-
-type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
 
 export function getStandaloneViewerDistDir() {
   return path.join(import.meta.dir, "..", "..", "dist", "export-viewer")
@@ -80,17 +49,12 @@ export async function writeStandaloneTranscriptExport(
   const viewerDistDir = deps.viewerDistDir ?? getStandaloneViewerDistDir()
   const ensureDir = deps.mkdir ?? mkdir
   const writeFileImpl = deps.writeFile ?? writeFile
-  const readFileImpl = deps.readFile ?? readFile
   const copyDirectory = deps.copyDirectory ?? (async (sourceDir, targetDir) => {
     await copyPath(sourceDir, targetDir, { recursive: true })
   })
   const copyFileImpl = deps.copyFile ?? copyFile
-  const readDir = deps.readDir ?? defaultReadDir
   const pathExists = deps.pathExists ?? defaultPathExists
-  const fetchImpl = deps.fetch ?? fetch
   const now = deps.now ?? new Date()
-  const shareUploadBaseUrl = deps.shareUploadBaseUrl ?? STANDALONE_SHARE_UPLOAD_BASE_URL
-  const sharePublicBaseUrl = deps.sharePublicBaseUrl ?? STANDALONE_SHARE_PUBLIC_BASE_URL
 
   if (!(await pathExists(viewerDistDir))) {
     throw new Error("Standalone viewer bundle not found. Run `bun run build`.")
@@ -127,32 +91,6 @@ export async function writeStandaloneTranscriptExport(
   const transcriptJson = `${JSON.stringify(bundle, null, 2)}\n`
   const transcriptJsonPath = path.join(outputDir, "transcript.json")
   await writeFileImpl(transcriptJsonPath, transcriptJson, "utf8")
-  const shareSlug = buildStandaloneShareSlug(args.title || args.chatId, deps.shareSlugSuffix)
-  const shareUrl = buildStandaloneShareUrl(sharePublicBaseUrl, shareSlug)
-  let uploadedFileCount = 0
-
-  try {
-    uploadedFileCount = await uploadStandaloneExportDirectory({
-      outputDir,
-      shareSlug,
-      uploadBaseUrl: shareUploadBaseUrl,
-      fetch: fetchImpl,
-      pathExists,
-      readDir,
-      readFile: readFileImpl,
-    })
-  } catch (error) {
-    return {
-      ok: false,
-      error: error instanceof Error ? error.message : String(error),
-      outputDir,
-      transcriptJsonPath,
-      transcriptFileName: `${path.basename(outputDir)}-transcript.json`,
-      transcriptJson,
-      shareSlug,
-      shareUrl,
-    }
-  }
 
   return {
     ok: true,
@@ -162,9 +100,6 @@ export async function writeStandaloneTranscriptExport(
     attachmentMode: args.attachmentMode,
     totalAttachmentCount: prepared.totalAttachmentCount,
     bundledAttachmentCount: prepared.bundledAttachmentCount,
-    shareSlug,
-    shareUrl,
-    uploadedFileCount,
   }
 }
 
@@ -277,118 +212,6 @@ async function defaultPathExists(targetPath: string) {
   } catch {
     return false
   }
-}
-
-async function defaultReadDir(targetPath: string) {
-  return await readdir(targetPath, { withFileTypes: true })
-}
-
-async function uploadStandaloneExportDirectory(args: {
-  outputDir: string
-  shareSlug: string
-  uploadBaseUrl: string
-  fetch: FetchLike
-  pathExists: (targetPath: string) => Promise<boolean>
-  readDir: (targetPath: string) => Promise<Dirent[]>
-  readFile: typeof readFile
-}) {
-  const filePaths = await listShareUploadFiles(args.outputDir, args.readDir, args.pathExists)
-  let uploadedFileCount = 0
-
-  for (const filePath of filePaths) {
-    const relativePath = path.relative(args.outputDir, filePath).split(path.sep).join("/")
-    const body = await args.readFile(filePath)
-    const response = await args.fetch(buildShareUploadUrl(args.uploadBaseUrl, args.shareSlug, relativePath), {
-      method: "PUT",
-      headers: {
-        "Cache-Control": getShareUploadCacheControl(relativePath),
-        "Content-Type": getContentTypeForPath(relativePath),
-      },
-      body,
-    })
-
-    if (!response.ok) {
-      const detail = await response.text().catch(() => "")
-      const suffix = detail ? `: ${detail}` : ` (status ${response.status})`
-      throw new Error(`Failed to upload shared transcript file ${relativePath}${suffix}`)
-    }
-
-    uploadedFileCount += 1
-  }
-
-  return uploadedFileCount
-}
-
-async function listShareUploadFiles(
-  outputDir: string,
-  readDir: (targetPath: string) => Promise<Dirent[]>,
-  pathExists: (targetPath: string) => Promise<boolean>,
-): Promise<string[]> {
-  const filePaths = [path.join(outputDir, "transcript.json")]
-  const attachmentsDir = path.join(outputDir, "attachments")
-
-  if (await pathExists(attachmentsDir)) {
-    filePaths.push(...await listExportFiles(attachmentsDir, readDir))
-  }
-
-  return filePaths
-}
-
-async function listExportFiles(
-  rootDir: string,
-  readDir: (targetPath: string) => Promise<Dirent[]>,
-): Promise<string[]> {
-  const entries = await readDir(rootDir)
-  const files: string[] = []
-
-  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
-    const entryPath = path.join(rootDir, entry.name)
-    if (entry.isDirectory()) {
-      files.push(...await listExportFiles(entryPath, readDir))
-      continue
-    }
-    if (entry.isFile()) {
-      files.push(entryPath)
-    }
-  }
-
-  return files
-}
-
-function buildStandaloneShareSlug(title: string, providedSuffix?: string) {
-  const baseSlug = title
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 64) || "chat"
-  const suffix = (providedSuffix ?? generateStandaloneShareSlugSuffix())
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "")
-    .slice(0, 12) || "share"
-  return `${baseSlug}-${suffix}`
-}
-
-function generateStandaloneShareSlugSuffix() {
-  return BigInt(`0x${randomBytes(8).toString("hex")}`).toString(36).slice(0, 10).padStart(10, "0")
-}
-
-function buildStandaloneShareUrl(baseUrl: string, shareSlug: string) {
-  return `${baseUrl.replace(/\/+$/u, "")}/${shareSlug}`
-}
-
-function buildShareUploadUrl(baseUrl: string, shareSlug: string, relativePath: string) {
-  const encodedSegments = [shareSlug, ...relativePath.split("/")].map((segment) => encodeURIComponent(segment))
-  return `${baseUrl.replace(/\/+$/u, "")}/${encodedSegments.join("/")}`
-}
-
-function getShareUploadCacheControl(relativePath: string) {
-  return STANDALONE_SHARE_ASSET_CACHE_CONTROL
-}
-
-function getContentTypeForPath(relativePath: string) {
-  return CONTENT_TYPES_BY_EXTENSION[path.extname(relativePath).toLowerCase()] ?? "application/octet-stream"
 }
 
 function rewriteLocalPathsForShare(value: unknown, localPath: string) {

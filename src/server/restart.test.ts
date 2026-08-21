@@ -5,7 +5,6 @@ import {
   CLI_UI_UPDATE_RESTART_EXIT_CODE,
   isUiUpdateRestart,
   parseChildArgsEnv,
-  sanitizeRestartArgv,
   shouldRestartCliProcess,
 } from "./restart"
 
@@ -27,15 +26,3 @@ describe("shouldRestartCliProcess", () => {
   })
 })
 
-describe("sanitizeRestartArgv", () => {
-  test("a pair launch respawns as a plain run (codes are single-use)", () => {
-    expect(sanitizeRestartArgv(["pair", "ABC123"])).toEqual([])
-    expect(sanitizeRestartArgv(["pair", "--status"])).toEqual([])
-  })
-
-  test("normal launches respawn with their original flags", () => {
-    expect(sanitizeRestartArgv([])).toEqual([])
-    expect(sanitizeRestartArgv(["--no-open", "--port", "4000"])).toEqual(["--no-open", "--port", "4000"])
-    expect(sanitizeRestartArgv(["--share"])).toEqual(["--share"])
-  })
-})

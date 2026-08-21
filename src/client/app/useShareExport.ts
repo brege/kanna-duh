@@ -27,7 +27,7 @@ export function useShareExport(params: {
 }) {
   const { socket, activeChatId, resolvedTheme, dialog, setCommandError } = params
   const [isExportingStandalone, setIsExportingStandalone] = useState(false)
-  const [standaloneShareUrl, setStandaloneShareUrl] = useState<string | null>(null)
+  const [standaloneExportPath, setStandaloneExportPath] = useState<string | null>(null)
   const [standaloneShareComplete, setStandaloneShareComplete] = useState(false)
 
   const handleExportStandalone = useCallback(async (chatId: string | null | undefined = activeChatId) => {
@@ -60,8 +60,8 @@ export function useShareExport(params: {
 
     setStandaloneShareComplete(false)
     const result = await handleExportStandalone(chatId)
-    if (result?.ok && result.shareUrl) {
-      setStandaloneShareUrl(result.shareUrl)
+    if (result?.ok) {
+      setStandaloneExportPath(result.outputDir)
       setStandaloneShareComplete(true)
       return
     }
@@ -82,12 +82,12 @@ export function useShareExport(params: {
   }, [activeChatId, dialog, handleExportStandalone, isExportingStandalone])
 
   const handleCloseStandaloneShareDialog = useCallback(() => {
-    setStandaloneShareUrl(null)
+    setStandaloneExportPath(null)
     setStandaloneShareComplete(false)
   }, [])
 
-  const handleCopyStandaloneShareLink = useCallback(async () => {
-    if (!standaloneShareUrl) {
+  const handleCopyStandaloneExportPath = useCallback(async () => {
+    if (!standaloneExportPath) {
       return false
     }
 
@@ -95,7 +95,7 @@ export function useShareExport(params: {
       if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
         throw new Error("Clipboard is not available")
       }
-      await navigator.clipboard.writeText(standaloneShareUrl)
+      await navigator.clipboard.writeText(standaloneExportPath)
       return true
     } catch (error) {
       await dialog.alert({
@@ -105,25 +105,15 @@ export function useShareExport(params: {
       })
       return false
     }
-  }, [dialog, standaloneShareUrl])
-
-  const handleOpenStandaloneShareLink = useCallback(() => {
-    if (!standaloneShareUrl) {
-      return
-    }
-
-    window.open(standaloneShareUrl, "_blank", "noopener,noreferrer")
-    setStandaloneShareUrl(null)
-  }, [standaloneShareUrl])
+  }, [dialog, standaloneExportPath])
 
   return {
     isExportingStandalone,
-    standaloneShareUrl,
+    standaloneExportPath,
     standaloneShareComplete,
     handleExportStandalone,
     handleShareChat,
     handleCloseStandaloneShareDialog,
-    handleCopyStandaloneShareLink,
-    handleOpenStandaloneShareLink,
+    handleCopyStandaloneExportPath,
   }
 }

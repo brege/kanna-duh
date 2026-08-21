@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
-import { Flower, House, Loader2, PanelLeft, Search, X, Menu, Plus, Settings, SquarePen, Terminal } from "lucide-react"
+import { Flower, House, Loader2, PanelLeft, Search, X, Menu, Plus, Settings, SquarePen } from "lucide-react"
 import { useLocation, useNavigate } from "react-router-dom"
 import { APP_NAME } from "../../shared/branding"
 import { Button } from "../components/ui/button"
@@ -16,7 +16,6 @@ import { ThreadRow } from "../components/chat-ui/sidebar/ThreadRow"
 import { ThreadSections } from "../components/chat-ui/sidebar/ThreadSections"
 import { Kbd } from "../components/ui/kbd"
 import { SidebarViewSwitcher, type SidebarView } from "../components/chat-ui/sidebar/SidebarViewSwitcher"
-import { MachineSwitcher } from "./MachineSwitcher"
 import { getResolvedKeybindings } from "../lib/keybindings"
 import { useIsStandalone } from "../hooks/useIsStandalone"
 import type { ChatTouchedFilesResult, KeybindingsSnapshot, SidebarChatRow, UpdateSnapshot } from "../../shared/types"
@@ -447,7 +446,6 @@ function KannaSidebarImpl({
   const hasVisibleChats = activeVisibleCount > 0
   const isLocalProjectsActive = location.pathname === "/"
   const newSidebarEnabled = useAppSettingsStore((s) => s.settings?.newSidebarEnabled !== false)
-  const devbox = useAppSettingsStore((s) => s.settings?.devbox === true)
   const newSidebarProjectsView = newSidebarEnabled && sidebarView === "projects"
 
   // New Sidebar's Projects tab hides projects with no chats and sorts by
@@ -715,19 +713,6 @@ function KannaSidebarImpl({
                     </button>
                   </>
                 ) : null}
-                {newSidebarEnabled && devbox ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      navigate("/terminal")
-                      onClose()
-                    }}
-                    className="flex w-full items-center gap-2 rounded-lg border border-border/0 px-2 py-1.5 max-md:py-2 text-sm max-md:text-base text-muted-foreground transition-colors hover:border-border hover:bg-muted"
-                  >
-                    <Terminal className="h-4 w-4 shrink-0" />
-                    <span>Terminal</span>
-                  </button>
-                ) : null}
               </div>
             ) : null}
 
@@ -825,7 +810,6 @@ function KannaSidebarImpl({
           onOpenExternalPath={onOpenExternalPath}
         />
 
-          <MachineSwitcher />
         <div className={cn("hidden md:block border-t border-border p-2", isStandalone && "pb-[55px]")}>
           <button
             type="button"

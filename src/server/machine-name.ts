@@ -3,7 +3,6 @@ import { homedir, hostname } from "node:os"
 import path from "node:path"
 import process from "node:process"
 import { spawnSync } from "node:child_process"
-import { getCloudFilePath } from "../shared/branding"
 
 function runAndRead(command: string, args: string[]) {
   const result = spawnSync(command, args, { encoding: "utf8" })
@@ -30,33 +29,10 @@ export function readMachineNameOverride(overridePath = getMachineNameOverridePat
   }
 }
 
-/**
- * Dev-boxes (direct-mode cloud identities) are named by the subdomain the
- * user picked at creation — the sandbox's own hostname is a random id.
- */
-export function readDevboxSubdomain(identityPath = getCloudFilePath(homedir())): string | null {
-  try {
-    const parsed = JSON.parse(readFileSync(identityPath, "utf8")) as {
-      mode?: unknown
-      subdomain?: unknown
-    }
-    if (parsed?.mode !== "direct") return null
-    const subdomain = typeof parsed.subdomain === "string" ? parsed.subdomain.trim() : ""
-    return subdomain || null
-  } catch {
-    return null
-  }
-}
-
-export function getMachineDisplayName(identityPath?: string, overridePath?: string) {
+export function getMachineDisplayName(overridePath?: string) {
   const override = readMachineNameOverride(overridePath)
   if (override) {
     return override
-  }
-
-  const devboxSubdomain = readDevboxSubdomain(identityPath)
-  if (devboxSubdomain) {
-    return devboxSubdomain
   }
 
   if (process.platform === "darwin") {

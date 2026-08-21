@@ -97,41 +97,12 @@ function createDeps(overrides: Partial<Parameters<typeof runCli>[1]> = {}) {
         },
       }
     },
-    // Hermetic defaults: never touch the real ~/.kanna/cloud.json or probe
-    // real local ports in tests.
-    readCloudIdentityImpl: async () => null,
+    // Hermetic default: never probe real local ports in tests.
     probeExistingInstanceImpl: async () => null,
     ...overrides,
   }
 
   return { calls, deps }
-}
-
-const CLOUD_IDENTITY = {
-  controlUrl: "https://kanna.sh/api/cloud",
-  machineToken: "machine-token",
-  proxySecret: "proxy-secret",
-  subdomain: "jakemor-mbp",
-  appOrigin: "https://jakemor-mbp.kanna.sh",
-  tunnelToken: "connector-token",
-  tunnelHost: "tun-m1.kanna.sh",
-  enabled: true,
-}
-
-function createFakeCloudRuntime() {
-  const calls = { starts: [] as Array<{ localUrl: string }>, stops: 0 }
-  const runtime = {
-    identity: CLOUD_IDENTITY,
-    connectTokens: { mint: () => ({ token: "t", expiresInMs: 60_000 }), validate: () => false },
-    getTunnelUrl: () => null,
-    start: (args: { localUrl: string }) => {
-      calls.starts.push({ localUrl: args.localUrl })
-    },
-    stop: async () => {
-      calls.stops += 1
-    },
-  }
-  return { runtime, calls }
 }
 
 describe("parseArgs", () => {
@@ -145,8 +116,6 @@ describe("parseArgs", () => {
         share: false,
         password: null,
         strictPort: false,
-        noCloud: false,
-        directCloud: false,
       },
     })
   })
@@ -161,8 +130,6 @@ describe("parseArgs", () => {
         share: false,
         password: null,
         strictPort: true,
-        noCloud: false,
-        directCloud: false,
       },
     })
   })
@@ -177,8 +144,6 @@ describe("parseArgs", () => {
         share: false,
         password: null,
         strictPort: false,
-        noCloud: false,
-        directCloud: false,
       },
     })
   })
@@ -193,8 +158,6 @@ describe("parseArgs", () => {
         share: "quick",
         password: null,
         strictPort: false,
-        noCloud: false,
-        directCloud: false,
       },
     })
   })
@@ -209,8 +172,6 @@ describe("parseArgs", () => {
         share: { kind: "token", token: "secret-token" },
         password: null,
         strictPort: false,
-        noCloud: false,
-        directCloud: false,
       },
     })
   })
@@ -225,8 +186,6 @@ describe("parseArgs", () => {
         share: false,
         password: "secret",
         strictPort: false,
-        noCloud: false,
-        directCloud: false,
       },
     })
   })
@@ -251,8 +210,6 @@ describe("parseArgs", () => {
         share: false,
         password: null,
         strictPort: false,
-        noCloud: false,
-        directCloud: false,
       },
     })
   })
@@ -267,8 +224,6 @@ describe("parseArgs", () => {
         share: false,
         password: null,
         strictPort: false,
-        noCloud: false,
-        directCloud: false,
       },
     })
   })
@@ -308,7 +263,7 @@ describe("compareVersions", () => {
 
 describe("classifyInstallVersionFailure", () => {
   test("maps version propagation failures to a user-facing retry message", () => {
-    expect(classifyInstallVersionFailure('error: No version matching "0.13.3" found for specifier "kanna-code"')).toEqual({
+    expect(classifyInstallVersionFailure('error: No version matching "0.13.3" found for specifier "kanna-duh"')).toEqual({
       ok: false,
       errorCode: "version_not_live_yet",
       userTitle: "Update not live yet",
@@ -329,14 +284,15 @@ describe("runCli", () => {
     expect(calls.log).toEqual(["0.3.0"])
   })
 
-  test("starts normally when no newer version exists", async () => {
+  test("starts normally without contacting the registry", async () => {
     const { calls, deps } = createDeps()
     process.env.KANNA_RUNTIME_PROFILE = "prod"
 
     const result = await runCli(["--port", "4000", "--no-open"], deps)
 
     expect(result.kind).toBe("started")
-    expect(calls.fetchLatestVersion).toEqual(["kanna-code"])
+    // Launching never checks npm or installs anything on its own.
+    expect(calls.fetchLatestVersion).toEqual([])
     expect(calls.installVersion).toEqual([])
     expect(calls.startServer).toHaveLength(1)
     expect(calls.startServer[0]).toMatchObject({
@@ -522,7 +478,7 @@ describe("runCli", () => {
     expect(calls.renderShareQr).toEqual([])
   })
 
-  test("returns restarting when a newer version is available", async () => {
+  test("a newer published version never self-installs on startup", async () => {
     const { calls, deps } = createDeps({
       fetchLatestVersion: async (packageName) => {
         calls.fetchLatestVersion.push(packageName)
@@ -532,265 +488,14 @@ describe("runCli", () => {
 
     const result = await runCli(["--port", "4000", "--no-open"], deps)
 
-    expect(result).toEqual({ kind: "restarting", reason: "startup_update" })
-    expect(calls.installVersion).toEqual([{ packageName: "kanna-code", version: "0.4.0" }])
-    expect(calls.startServer).toEqual([])
-  })
-
-  test("falls back to current version when install fails", async () => {
-    const { calls, deps } = createDeps({
-      fetchLatestVersion: async (packageName) => {
-        calls.fetchLatestVersion.push(packageName)
-        return "0.4.0"
-      },
-      installVersion: (packageName, version) => {
-        calls.installVersion.push({ packageName, version })
-        return {
-          ok: false,
-          errorCode: "install_failed",
-          userTitle: "Update failed",
-          userMessage: "Kanna could not install the update. Try again later.",
-        }
-      },
-    })
-
-    const result = await runCli(["--no-open"], deps)
-
     expect(result.kind).toBe("started")
-    expect(calls.installVersion).toEqual([{ packageName: "kanna-code", version: "0.4.0" }])
-    expect(calls.warn).toContain("[kanna] update failed, continuing current version")
-  })
-
-  test("falls back to current version when the registry check fails", async () => {
-    const { calls, deps } = createDeps({
-      fetchLatestVersion: async (packageName) => {
-        calls.fetchLatestVersion.push(packageName)
-        throw new Error("network unavailable")
-      },
-    })
-
-    const result = await runCli(["--no-open"], deps)
-
-    expect(result.kind).toBe("started")
-    expect(calls.installVersion).toEqual([])
-    expect(calls.warn).toContain("[kanna] update check failed, continuing current version")
-  })
-})
-
-describe("parseArgs pair subcommand", () => {
-  test("pair with a code", () => {
-    expect(parseArgs(["pair", "ABC123XYZ"])).toEqual({
-      kind: "pair",
-      args: { action: "pair", pairingCode: "ABC123XYZ" },
-    })
-  })
-
-  test("pair management flags", () => {
-    expect(parseArgs(["pair", "--status"])).toEqual({ kind: "pair", args: { action: "status", pairingCode: null } })
-    expect(parseArgs(["pair", "--disable"])).toEqual({ kind: "pair", args: { action: "disable", pairingCode: null } })
-    expect(parseArgs(["pair", "--enable"])).toEqual({ kind: "pair", args: { action: "enable", pairingCode: null } })
-    expect(parseArgs(["pair", "--remove"])).toEqual({ kind: "pair", args: { action: "remove", pairingCode: null } })
-  })
-
-  test("pair without a code runs the device flow (no code required)", () => {
-    expect(parseArgs(["pair"])).toEqual({ kind: "pair", args: { action: "pair", pairingCode: null } })
-  })
-
-  test("pair rejects extra arguments", () => {
-    expect(() => parseArgs(["pair", "CODE1", "CODE2"])).toThrow("Unexpected argument")
-    expect(() => parseArgs(["pair", "--bogus"])).toThrow("Unexpected argument")
-  })
-
-  test("--no-cloud sets the one-shot flag", () => {
-    const parsed = parseArgs(["--no-cloud"])
-    expect(parsed.kind).toBe("run")
-    if (parsed.kind === "run") {
-      expect(parsed.options.noCloud).toBe(true)
-    }
-  })
-
-  test("--cloud sets directCloud and binds 0.0.0.0", () => {
-    const parsed = parseArgs(["--cloud", "--no-open"])
-    expect(parsed.kind).toBe("run")
-    if (parsed.kind === "run") {
-      expect(parsed.options.directCloud).toBe(true)
-      expect(parsed.options.host).toBe("0.0.0.0")
-    }
-  })
-
-  test("--cloud conflicts with --no-cloud, share modes, and host overrides", () => {
-    expect(() => parseArgs(["--cloud", "--no-cloud"])).toThrow("--no-cloud")
-    expect(() => parseArgs(["--cloud", "--share"])).toThrow("--share")
-    expect(() => parseArgs(["--cloud", "--cloudflared", "tok"])).toThrow("--cloudflared")
-    expect(() => parseArgs(["--cloud", "--host", "10.0.0.5"])).toThrow("--host")
-    expect(() => parseArgs(["--cloud", "--remote"])).toThrow("--remote")
-  })
-})
-
-describe("runCli cloud", () => {
-  test("successful pair flows straight into a normal run (machine comes online immediately)", async () => {
-    const pairCalls: unknown[] = []
-    const fake = createFakeCloudRuntime()
-    const { calls, deps } = createDeps({
-      runPairCommandImpl: async (args) => {
-        pairCalls.push(args)
-        return 0
-      },
-      // After pairing, the identity exists — sticky cloud kicks in.
-      readCloudIdentityImpl: async () => ({ ...CLOUD_IDENTITY }),
-      createCloudRuntimeImpl: () => fake.runtime,
-    })
-
-    const result = await runCli(["pair", "ABC123"], deps)
-
-    expect(pairCalls).toEqual([{ action: "pair", pairingCode: "ABC123" }])
-    expect(result.kind).toBe("started")
-    expect(calls.startServer.length).toBe(1)
-    expect(fake.calls.starts.length).toBe(1)
-    expect(calls.log.some((line) => line.includes("starting kanna"))).toBe(true)
-    if (result.kind === "started") await result.stop()
-  })
-
-  test("failed pair exits without starting a server", async () => {
-    const { calls, deps } = createDeps({
-      runPairCommandImpl: async () => 1,
-    })
-
-    const result = await runCli(["pair", "BAD"], deps)
-
-    expect(result).toEqual({ kind: "exited", code: 1 })
-    expect(calls.startServer).toEqual([])
-  })
-
-  test("pair management actions exit without starting a server", async () => {
-    const { calls, deps } = createDeps({
-      runPairCommandImpl: async () => 0,
-    })
-
-    const result = await runCli(["pair", "--status"], deps)
-
-    expect(result).toEqual({ kind: "exited", code: 0 })
-    expect(calls.startServer).toEqual([])
     expect(calls.fetchLatestVersion).toEqual([])
-  })
-
-  test("paired + enabled identity auto-starts cloud", async () => {
-    const fake = createFakeCloudRuntime()
-    const { calls, deps } = createDeps({
-      readCloudIdentityImpl: async () => ({ ...CLOUD_IDENTITY }),
-      createCloudRuntimeImpl: () => fake.runtime,
-    })
-
-    const result = await runCli(["--no-open"], deps)
-
-    expect(result.kind).toBe("started")
-    const serverOptions = calls.startServer[0] as typeof calls.startServer[0] & { cloud?: unknown }
-    expect(serverOptions.trustProxy).toBe(true)
-    expect(serverOptions.cloud).toBe(fake.runtime)
-    expect(fake.calls.starts).toEqual([{ localUrl: "http://localhost:3210" }])
-    expect(calls.log.some((line) => line.includes("cloud: waiting for https://jakemor-mbp.kanna.sh"))).toBe(true)
-
-    if (result.kind === "started") {
-      await result.stop()
-    }
-    expect(fake.calls.stops).toBe(1)
-  })
-
-  test("--no-cloud skips cloud for this run", async () => {
-    let readCalls = 0
-    const { calls, deps } = createDeps({
-      readCloudIdentityImpl: async () => {
-        readCalls += 1
-        return { ...CLOUD_IDENTITY }
-      },
-      createCloudRuntimeImpl: () => {
-        throw new Error("should not create a cloud runtime with --no-cloud")
-      },
-    })
-
-    const result = await runCli(["--no-open", "--no-cloud"], deps)
-
-    expect(result.kind).toBe("started")
-    // The identity may be read (the single-instance guard uses it for the
-    // hosted URL), but no cloud runtime is created.
-    expect(readCalls).toBeLessThanOrEqual(1)
-    const serverOptions = calls.startServer[0] as typeof calls.startServer[0] & { cloud?: unknown }
-    expect(serverOptions.cloud ?? null).toBeNull()
-    expect(serverOptions.trustProxy).toBe(false)
-  })
-
-  test("--share wins over cloud auto-enable", async () => {
-    const { calls, deps } = createDeps({
-      readCloudIdentityImpl: async () => ({ ...CLOUD_IDENTITY }),
-      createCloudRuntimeImpl: () => {
-        throw new Error("should not create a cloud runtime with --share")
-      },
-    })
-
-    const result = await runCli(["--no-open", "--share"], deps)
-
-    expect(result.kind).toBe("started")
-    expect(calls.shareTunnel.length).toBe(1)
-    const serverOptions = calls.startServer[0] as typeof calls.startServer[0] & { cloud?: unknown }
-    expect(serverOptions.cloud ?? null).toBeNull()
-  })
-
-  test("disabled identity stays local", async () => {
-    const { calls, deps } = createDeps({
-      readCloudIdentityImpl: async () => ({ ...CLOUD_IDENTITY, enabled: false }),
-      createCloudRuntimeImpl: () => {
-        throw new Error("should not create a cloud runtime when disabled")
-      },
-    })
-
-    const result = await runCli(["--no-open"], deps)
-
-    expect(result.kind).toBe("started")
-    const serverOptions = calls.startServer[0] as typeof calls.startServer[0] & { cloud?: unknown }
-    expect(serverOptions.cloud ?? null).toBeNull()
-    expect(calls.log.some((line) => line.includes("cloud:"))).toBe(false)
-  })
-
-  test("--cloud without an identity exits 1", async () => {
-    const { calls, deps } = createDeps({
-      readCloudIdentityImpl: async () => null,
-      createCloudRuntimeImpl: () => {
-        throw new Error("should not create a cloud runtime without an identity")
-      },
-    })
-
-    const result = await runCli(["--no-open", "--cloud"], deps)
-
-    expect(result).toEqual({ kind: "exited", code: 1 })
-    expect(calls.startServer).toEqual([])
-    expect(calls.warn.some((line) => line.includes("--cloud needs a provisioned cloud identity"))).toBe(true)
-  })
-
-  test("--cloud forces direct mode and overrides a sticky disable", async () => {
-    const fake = createFakeCloudRuntime()
-    const identitiesSeen: unknown[] = []
-    const { calls, deps } = createDeps({
-      readCloudIdentityImpl: async () => ({ ...CLOUD_IDENTITY, enabled: false }),
-      createCloudRuntimeImpl: (identity) => {
-        identitiesSeen.push(identity)
-        return fake.runtime
-      },
-    })
-
-    const result = await runCli(["--no-open", "--cloud"], deps)
-
-    expect(result.kind).toBe("started")
-    expect(identitiesSeen).toEqual([{ ...CLOUD_IDENTITY, mode: "direct", enabled: true }])
-    const serverOptions = calls.startServer[0] as typeof calls.startServer[0] & { cloud?: unknown; host?: string }
-    expect(serverOptions.cloud).toBe(fake.runtime)
-    expect(serverOptions.trustProxy).toBe(true)
-    expect(serverOptions.host).toBe("0.0.0.0")
-    expect(fake.calls.starts.length).toBe(1)
-    if (result.kind === "started") await result.stop()
+    expect(calls.installVersion).toEqual([])
+    expect(calls.startServer).toHaveLength(1)
   })
 })
 
-describe("runCli single-instance guard + hosted open", () => {
+describe("runCli single-instance guard", () => {
   test("existing same-data-dir instance → exit 0, open local URL", async () => {
     const { calls, deps } = createDeps({
       probeExistingInstanceImpl: async () => ({ localUrl: "http://localhost:3210", port: 3210 }),
@@ -804,18 +509,6 @@ describe("runCli single-instance guard + hosted open", () => {
     expect(calls.log.some((line) => line.includes("already running"))).toBe(true)
   })
 
-  test("existing instance + paired identity → open the hosted URL instead", async () => {
-    const { calls, deps } = createDeps({
-      probeExistingInstanceImpl: async () => ({ localUrl: "http://localhost:3210", port: 3210 }),
-      readCloudIdentityImpl: async () => ({ ...CLOUD_IDENTITY }),
-    })
-
-    const result = await runCli([], deps)
-
-    expect(result).toEqual({ kind: "exited", code: 0 })
-    expect(calls.openUrl).toEqual(["https://jakemor-mbp.kanna.sh"])
-  })
-
   test("existing instance + --no-open → no browser", async () => {
     const { calls, deps } = createDeps({
       probeExistingInstanceImpl: async () => ({ localUrl: "http://localhost:3210", port: 3210 }),
@@ -824,33 +517,7 @@ describe("runCli single-instance guard + hosted open", () => {
     expect(calls.openUrl).toEqual([])
   })
 
-  test("paired start opens the hosted URL when the tunnel connects (not localhost)", async () => {
-    const fake = createFakeCloudRuntime()
-    let capturedOnTunnelUp: ((kind: "started" | "recovered") => void) | undefined
-    fake.runtime.start = (args: { localUrl: string; onTunnelUp?: (kind: "started" | "recovered") => void }) => {
-      fake.calls.starts.push({ localUrl: args.localUrl })
-      capturedOnTunnelUp = args.onTunnelUp
-    }
-    const { calls, deps } = createDeps({
-      readCloudIdentityImpl: async () => ({ ...CLOUD_IDENTITY }),
-      createCloudRuntimeImpl: () => fake.runtime,
-    })
-
-    const result = await runCli([], deps)
-
-    expect(result.kind).toBe("started")
-    // No local open while the tunnel is connecting…
-    expect(calls.openUrl).toEqual([])
-    capturedOnTunnelUp?.("started")
-    expect(calls.openUrl).toEqual(["https://jakemor-mbp.kanna.sh"])
-    // …and recoveries never re-open the browser.
-    capturedOnTunnelUp?.("recovered")
-    expect(calls.openUrl).toEqual(["https://jakemor-mbp.kanna.sh"])
-
-    if (result.kind === "started") await result.stop()
-  })
-
-  test("unpaired start still opens localhost", async () => {
+  test("start opens localhost", async () => {
     const { calls, deps } = createDeps()
     const result = await runCli([], deps)
     expect(result.kind).toBe("started")

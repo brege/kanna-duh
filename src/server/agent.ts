@@ -18,8 +18,6 @@ import { normalizeToolCall } from "../shared/tools"
 import type { ClientCommand } from "../shared/protocol"
 import { AsyncQueue } from "./async-queue"
 import { EventStore } from "./event-store"
-import type { AnalyticsReporter } from "./analytics"
-import { NoopAnalyticsReporter } from "./analytics"
 import { CodexAppServerManager } from "./codex-app-server"
 import { CursorCliManager } from "./cursor-cli"
 import { PiAgentManager, resolvePiConnection } from "./pi-agent"
@@ -35,12 +33,6 @@ import {
   scanCodexSkills,
   scanCursorSkills,
 } from "./harness-skills"
-import {
-  buildKannaAgentCorrection,
-  buildKannaAgentId,
-  buildKannaAttributionInstructions,
-  buildKannaAttributionSystemMessage,
-} from "./attribution"
 import {
   applyClaudeSdkModels,
   applyCursorModels,
@@ -150,13 +142,6 @@ interface ClaudeSessionState {
   session: ClaudeSessionHandle
   localPath: string
   model: string
-  /**
-   * The agent id baked into this session's system-prompt append. Frozen at
-   * query() time — unlike `model`, which setModel() updates in place — so a
-   * mismatch against the turn's model is exactly the drift the per-turn
-   * correction exists to cover.
-   */
-  promptAgentId: string
   effort?: string
   serviceTier?: "fast"
   planMode: boolean
@@ -186,7 +171,6 @@ interface ClaudeSessionState {
 interface AgentCoordinatorArgs {
   store: EventStore
   onStateChange: (chatId?: string, options?: { immediate?: boolean }) => void
-  analytics?: AnalyticsReporter
   codexManager?: CodexAppServerManager
   cursorManager?: CursorCliManager
   piManager?: PiAgentManager
@@ -739,12 +723,9 @@ async function startClaudeSession(args: {
       canUseTool,
       tools: claudeToolset(args.autoPlan),
       settingSources: ["user", "project", "local"],
-      // Append-only: the claude_code preset stays intact, Kanna's git
-      // attribution rides on the end of it (see attribution.ts).
       systemPrompt: {
         type: "preset",
         preset: "claude_code",
-        append: buildKannaAttributionInstructions(buildKannaAgentId("claude", args.model)),
       },
       // fastMode must go through the flag-settings layer: the CLI only allows
       // fast mode in Agent SDK sessions when flagSettings.fastMode is true,
@@ -830,7 +811,6 @@ async function startClaudeSession(args: {
 export class AgentCoordinator {
   private readonly store: EventStore
   private readonly onStateChange: (chatId?: string, options?: { immediate?: boolean }) => void
-  private readonly analytics: AnalyticsReporter
   private readonly codexManager: CodexAppServerManager
   private readonly cursorManager: CursorCliManager
   private readonly piManager: PiAgentManager
@@ -848,7 +828,6 @@ export class AgentCoordinator {
   constructor(args: AgentCoordinatorArgs) {
     this.store = args.store
     this.onStateChange = args.onStateChange
-    this.analytics = args.analytics ?? NoopAnalyticsReporter
     this.codexManager = args.codexManager ?? new CodexAppServerManager()
     this.cursorManager = args.cursorManager ?? new CursorCliManager()
     this.piManager = args.piManager ?? new PiAgentManager()
@@ -1400,12 +1379,6 @@ export class AgentCoordinator {
           cursorContent = appendSystemMessageBlock(cursorContent, buildSkillSystemMessage(match.path))
         }
       }
-      // Cursor builds its system prompt server-side and exposes no append hook,
-      // so its share of the git attribution rides the user-text path instead.
-      cursorContent = appendSystemMessageBlock(
-        cursorContent,
-        buildKannaAttributionSystemMessage(buildKannaAgentId("cursor", args.model))
-      )
       // Cursor cannot fork (see canForkChat), so a turn always resumes its own session.
       turn = await this.cursorManager.startTurn({
         cwd: project.localPath,
@@ -1509,17 +1482,7 @@ export class AgentCoordinator {
         contentPreview: wireContent.slice(0, 160),
         pendingPromptSeqs: [...session.pendingPromptSeqs],
       })
-      // setModel() swaps the model on the live session without restarting it,
-      // so the agent id in the session prompt can be stale. Re-state it on the
-      // turn text (wire-only — the transcript stores args.content) from the
-      // drift onward.
-      const claudeAgentId = buildKannaAgentId("claude", args.model)
-      const claudePrompt = buildPromptText(wireContent, args.attachments)
-      await session.session.sendPrompt(
-        session.promptAgentId === claudeAgentId
-          ? claudePrompt
-          : appendSystemMessageBlock(claudePrompt, buildKannaAgentCorrection(claudeAgentId))
-      )
+      await session.session.sendPrompt(buildPromptText(wireContent, args.attachments))
       return
     }
 
@@ -1576,7 +1539,6 @@ export class AgentCoordinator {
         session: started,
         localPath: args.localPath,
         model: args.model,
-        promptAgentId: buildKannaAgentId("claude", args.model),
         effort: args.effort,
         serviceTier: args.serviceTier,
         planMode: args.planMode,
@@ -1626,7 +1588,6 @@ export class AgentCoordinator {
       }
       const created = await this.store.createChat(command.projectId)
       chatId = created.id
-      this.analytics.track("chat_created")
     }
 
     const chat = this.store.requireChat(chatId)
@@ -1636,7 +1597,6 @@ export class AgentCoordinator {
       await this.store.unarchiveChat(chatId)
     }
     if (this.activeTurns.has(chatId)) {
-      this.analytics.track("message_sent")
       const queuedMessage = await this.enqueueMessage(chatId, command.content, command.attachments ?? [], {
         provider: command.provider,
         model: command.model,
@@ -1650,7 +1610,6 @@ export class AgentCoordinator {
 
     const provider = this.resolveProvider(command, chat.provider)
     const settings = this.getProviderSettings(provider, command)
-    this.analytics.track("message_sent")
     await this.startTurnForChat({
       chatId,
       provider,
@@ -1669,7 +1628,6 @@ export class AgentCoordinator {
   }
 
   async enqueue(command: Extract<ClientCommand, { type: "message.enqueue" }>) {
-    this.analytics.track("message_sent")
     const queuedMessage = await this.enqueueMessage(command.chatId, command.content, command.attachments ?? [], {
       provider: command.provider,
       model: command.model,
@@ -1829,7 +1787,6 @@ export class AgentCoordinator {
     }
 
     const forked = await this.store.forkChat(chatId)
-    this.analytics.track("chat_created")
     return { chatId: forked.id }
   }
 

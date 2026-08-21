@@ -321,17 +321,11 @@ function createWorld(options?: { projectPath?: string }) {
 
   const appSettingsListeners = new Set<(snapshot: unknown) => void>()
   let appSettingsSnapshot: Record<string, unknown> = {
-    analyticsEnabled: true,
     theme: "system",
     newSidebarEnabled: false,
   }
   const appSettings = {
     getSnapshot: () => appSettingsSnapshot,
-    write: async (value: { analyticsEnabled: boolean }) => {
-      appSettingsSnapshot = { ...appSettingsSnapshot, analyticsEnabled: value.analyticsEnabled }
-      for (const listener of appSettingsListeners) listener(appSettingsSnapshot)
-      return appSettingsSnapshot
-    },
     writePatch: async (patch: Record<string, unknown>) => {
       appSettingsSnapshot = { ...appSettingsSnapshot, ...patch }
       for (const listener of appSettingsListeners) listener(appSettingsSnapshot)

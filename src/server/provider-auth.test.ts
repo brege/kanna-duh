@@ -222,7 +222,6 @@ function createHarness(options: HarnessOptions = {}) {
   }
   const execCalls: Array<{ argv: string[]; stdin?: string }> = []
   const signedIn: string[] = []
-  const events: string[] = []
   let llmProvider = options.llmProvider ?? llmSnapshot()
   let now = 1_000_000
 
@@ -250,7 +249,6 @@ function createHarness(options: HarnessOptions = {}) {
     fetchLatestNpmVersion: options.fetchLatestNpmVersion,
     resolveCommandPath: (command) => paths[command] ?? null,
     onSignedIn: (service) => signedIn.push(service),
-    trackEvent: (name) => events.push(name),
     sleep: async () => {},
     platform: options.platform ?? "darwin",
     now: () => now,
@@ -260,7 +258,6 @@ function createHarness(options: HarnessOptions = {}) {
     manager,
     execCalls,
     signedIn,
-    events,
     getLlmProvider: () => llmProvider,
     advance: (ms: number) => {
       now += ms

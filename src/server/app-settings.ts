@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto"
 import { watch, type FSWatcher } from "node:fs"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { homedir } from "node:os"
@@ -22,8 +21,6 @@ import {
 } from "../shared/types"
 
 interface AppSettingsFile {
-  analyticsEnabled?: unknown
-  analyticsUserId?: unknown
   browserSettingsMigrated?: unknown
   theme?: unknown
   chatSoundPreference?: unknown
@@ -51,10 +48,7 @@ interface AppSettingsFile {
   setupDismissed?: unknown
 }
 
-// devbox is a server-runtime fact (the --cloud flag), not settings state.
-interface AppSettingsState extends Omit<AppSettingsSnapshot, "devbox"> {
-  analyticsUserId: string
-}
+type AppSettingsState = AppSettingsSnapshot
 
 interface NormalizedAppSettings {
   payload: AppSettingsState
@@ -71,10 +65,6 @@ const MAX_TERMINAL_MIN_COLUMN_WIDTH = 900
 const DEFAULT_EDITOR_PRESET: EditorPreset = "cursor"
 const DEFAULT_CHAT_SOUND_PREFERENCE: ChatSoundPreference = "always"
 const DEFAULT_CHAT_SOUND_ID: ChatSoundId = "funk"
-
-function createAnalyticsUserId() {
-  return `anon_${randomUUID()}`
-}
 
 function getDefaultEditorCommandTemplate(preset: EditorPreset) {
   switch (preset) {
@@ -141,8 +131,6 @@ function normalizeEditorCommandTemplate(value: unknown, preset: EditorPreset) {
 
 function toFilePayload(state: AppSettingsState) {
   return {
-    analyticsEnabled: state.analyticsEnabled,
-    analyticsUserId: state.analyticsUserId,
     browserSettingsMigrated: state.browserSettingsMigrated,
     theme: state.theme,
     chatSoundPreference: state.chatSoundPreference,
@@ -159,10 +147,8 @@ function toFilePayload(state: AppSettingsState) {
   }
 }
 
-function toSnapshot(state: AppSettingsState, devbox = false): AppSettingsSnapshot {
+function toSnapshot(state: AppSettingsState): AppSettingsSnapshot {
   return {
-    devbox,
-    analyticsEnabled: state.analyticsEnabled,
     browserSettingsMigrated: state.browserSettingsMigrated,
     theme: state.theme,
     chatSoundPreference: state.chatSoundPreference,
@@ -194,20 +180,6 @@ function normalizeAppSettings(
     warnings.push("Settings file must contain a JSON object")
   }
 
-  const analyticsEnabled = typeof source?.analyticsEnabled === "boolean" ? source.analyticsEnabled : true
-  if (source?.analyticsEnabled !== undefined && typeof source.analyticsEnabled !== "boolean") {
-    warnings.push("analyticsEnabled must be a boolean")
-  }
-
-  const rawAnalyticsUserId = typeof source?.analyticsUserId === "string" ? source.analyticsUserId.trim() : ""
-  if (source?.analyticsUserId !== undefined && typeof source.analyticsUserId !== "string") {
-    warnings.push("analyticsUserId must be a string")
-  }
-  const analyticsUserId = rawAnalyticsUserId || createAnalyticsUserId()
-  if (!rawAnalyticsUserId && source?.analyticsUserId !== undefined) {
-    warnings.push("analyticsUserId must be a non-empty string")
-  }
-
   // New Sidebar ships enabled; an explicit false opts back into the legacy sidebar.
   const newSidebarEnabled = typeof source?.newSidebarEnabled === "boolean"
     ? source.newSidebarEnabled
@@ -226,8 +198,6 @@ function normalizeAppSettings(
 
   const editorPreset = normalizeEditorPreset(source?.editor?.preset)
   const state: AppSettingsState = {
-    analyticsEnabled,
-    analyticsUserId,
     browserSettingsMigrated: source?.browserSettingsMigrated === true,
     theme: normalizeTheme(source?.theme),
     chatSoundPreference: normalizeChatSoundPreference(source?.chatSoundPreference),
@@ -268,8 +238,6 @@ function normalizeAppSettings(
 
 function toComparablePayload(source: AppSettingsFile) {
   return {
-    analyticsEnabled: source.analyticsEnabled,
-    analyticsUserId: typeof source.analyticsUserId === "string" ? source.analyticsUserId.trim() : source.analyticsUserId,
     browserSettingsMigrated: source.browserSettingsMigrated,
     theme: source.theme,
     chatSoundPreference: source.chatSoundPreference,
@@ -335,13 +303,10 @@ export class AppSettingsManager {
   private watcher: FSWatcher | null = null
   private state: AppSettingsState
   private readonly listeners = new Set<(snapshot: AppSettingsSnapshot) => void>()
-  /** Server-computed snapshot fields — never read from or written to the file. */
-  private readonly extras: { devbox: boolean }
 
-  constructor(filePath = getSettingsFilePath(homedir()), extras: { devbox?: boolean } = {}) {
+  constructor(filePath = getSettingsFilePath(homedir())) {
     this.filePath = filePath
     this.state = normalizeAppSettings(undefined, filePath).payload
-    this.extras = { devbox: extras.devbox === true }
   }
 
   async initialize() {
@@ -357,7 +322,7 @@ export class AppSettingsManager {
   }
 
   getSnapshot() {
-    return toSnapshot(this.state, this.extras.devbox)
+    return toSnapshot(this.state)
   }
 
   getState() {
@@ -376,10 +341,6 @@ export class AppSettingsManager {
     this.setState(nextState)
   }
 
-  async write(value: { analyticsEnabled: boolean }) {
-    return this.writePatch({ analyticsEnabled: value.analyticsEnabled })
-  }
-
   async writePatch(patch: AppSettingsPatch) {
     const nextState = {
       ...applyPatch(this.state, patch),
@@ -389,7 +350,7 @@ export class AppSettingsManager {
     await mkdir(path.dirname(this.filePath), { recursive: true })
     await writeFile(this.filePath, `${JSON.stringify(toFilePayload(nextState), null, 2)}\n`, "utf8")
     this.setState(nextState)
-    return toSnapshot(nextState, this.extras.devbox)
+    return toSnapshot(nextState)
   }
 
   private async readState(options?: { persistNormalized?: boolean }) {
@@ -424,7 +385,7 @@ export class AppSettingsManager {
 
   private setState(state: AppSettingsState) {
     this.state = state
-    const snapshot = toSnapshot(state, this.extras.devbox)
+    const snapshot = toSnapshot(state)
     for (const listener of this.listeners) {
       listener(snapshot)
     }

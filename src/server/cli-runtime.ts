@@ -1,19 +1,17 @@
 import process from "node:process"
 import { spawnSync } from "node:child_process"
+import { readFileSync, writeFileSync } from "node:fs"
+import { homedir } from "node:os"
+import path from "node:path"
 import { hasCommand, spawnDetached } from "./process-utils"
-import { APP_NAME, CLI_COMMAND, getDataDirDisplay, LOG_PREFIX, PACKAGE_NAME } from "../shared/branding"
+import { APP_NAME, CLI_COMMAND, getDataDirDisplay, LOG_PREFIX } from "../shared/branding"
 import type { ShareMode } from "../shared/share"
 import { assertNoHostOverride, getShareCliFlag, isShareEnabled, isTokenShareMode } from "../shared/share"
 import type { UpdateInstallErrorCode } from "../shared/types"
-import { repairBunGlobalManifest, type NightlyInstallResult } from "./nightly"
 import { PROD_SERVER_PORT } from "../shared/ports"
 import { CLI_SUPPRESS_OPEN_ONCE_ENV_VAR } from "./restart"
 import { logShareDetails, renderTerminalQr, startShareTunnel, type StartedShareTunnel } from "./share"
 import { probeExistingInstance, type ExistingInstance } from "./instance"
-import type { AnalyticsReporter } from "./analytics"
-import { createCloudRuntime, type CloudRuntime } from "./cloud"
-import { readCloudIdentity, type CloudIdentity } from "./cloud/identity"
-import { runPairCommand, type PairCommandArgs, type PairAction } from "./cloud/pair-command"
 
 export interface CliOptions {
   port: number
@@ -22,23 +20,12 @@ export interface CliOptions {
   share: ShareMode
   password: string | null
   strictPort: boolean
-  /** One-shot: skip bringing a paired machine online for this run. */
-  noCloud: boolean
-  /**
-   * Run as a cloud dev-box (`kanna --cloud`): requires a provisioned cloud
-   * identity, forces direct mode (no cloudflared — the proxy reaches this
-   * machine at its public sandbox URL), and binds 0.0.0.0 so the sandbox
-   * ingress can reach the server. Hook for future dev-box-only features.
-   */
-  directCloud: boolean
 }
 
 export interface CliUpdateOptions {
   version: string
   fetchLatestVersion: (packageName: string) => Promise<string>
   installVersion: (packageName: string, version: string) => UpdateInstallAttemptResult
-  /** Build main from source and install it globally (see server/nightly.ts). */
-  installNightly?: () => Promise<NightlyInstallResult>
   argv: string[]
   command: string
 }
@@ -67,20 +54,14 @@ export interface CliRuntimeDeps {
     update: CliUpdateOptions
     onMigrationProgress?: (message: string) => void
     trustProxy?: boolean
-    cloud?: CloudRuntime | null
-    allowCloudPairing?: boolean
-  }) => Promise<{ port: number; stop: () => Promise<void>; analytics?: AnalyticsReporter }>
+  }) => Promise<{ port: number; stop: () => Promise<void> }>
   fetchLatestVersion: (packageName: string) => Promise<string>
   installVersion: (packageName: string, version: string) => UpdateInstallAttemptResult
-  installNightly?: () => Promise<NightlyInstallResult>
   openUrl: (url: string) => void
   log: (message: string) => void
   warn: (message: string) => void
   renderShareQr?: (url: string) => Promise<string>
   startShareTunnel?: (localUrl: string, shareMode: Exclude<ShareMode, false>) => Promise<StartedShareTunnel>
-  runPairCommandImpl?: typeof runPairCommand
-  readCloudIdentityImpl?: (warn: (message: string) => void) => Promise<CloudIdentity | null>
-  createCloudRuntimeImpl?: (identity: CloudIdentity) => CloudRuntime
   probeExistingInstanceImpl?: (port: number) => Promise<ExistingInstance | null>
 }
 
@@ -93,7 +74,6 @@ export interface UpdateInstallAttemptResult {
 
 type ParsedArgs =
   | { kind: "run"; options: CliOptions }
-  | { kind: "pair"; args: PairCommandArgs }
   | { kind: "help" }
   | { kind: "version" }
 
@@ -108,9 +88,6 @@ function printHelp() {
 
 Usage:
   ${CLI_COMMAND} [options]
-  ${CLI_COMMAND} pair          Claim this machine on kanna.sh (prints a link + QR) and start
-  ${CLI_COMMAND} pair <code>   Same, using a code from https://kanna.sh/machines
-  ${CLI_COMMAND} pair --status|--disable|--enable|--remove
 
 Options:
   --port <number>      Port to listen on (default: ${PROD_SERVER_PORT})
@@ -122,43 +99,11 @@ Options:
   --password <secret>  Require a password before loading the app
   --strict-port        Fail instead of trying another port
   --no-open            Don't open browser automatically
-  --no-cloud           Skip bringing a paired machine online for this run
-  --cloud              Run as a cloud dev-box (direct mode, no cloudflared)
   --version            Print version and exit
   --help               Show this help message`)
 }
 
-function parsePairArgs(argv: string[]): ParsedArgs {
-  let action: PairAction = "pair"
-  let pairingCode: string | null = null
-
-  for (const arg of argv) {
-    if (arg === "--status") {
-      action = "status"
-    } else if (arg === "--disable") {
-      action = "disable"
-    } else if (arg === "--enable") {
-      action = "enable"
-    } else if (arg === "--remove") {
-      action = "remove"
-    } else if (!arg.startsWith("-") && pairingCode === null) {
-      pairingCode = arg
-    } else {
-      throw new Error(`Unexpected argument for ${CLI_COMMAND} pair: ${arg}`)
-    }
-  }
-
-  // A bare `kanna pair` is the one-click flow: the machine asks kanna.sh for
-  // a claim link, prints it (plus a QR), and waits. A code argument still
-  // works for links minted from the dashboard.
-  return { kind: "pair", args: { action, pairingCode } }
-}
-
 export function parseArgs(argv: string[]): ParsedArgs {
-  if (argv[0] === "pair") {
-    return parsePairArgs(argv.slice(1))
-  }
-
   let port = PROD_SERVER_PORT
   let host = "127.0.0.1"
   let openBrowser = true
@@ -167,8 +112,6 @@ export function parseArgs(argv: string[]): ParsedArgs {
   let sawHost = false
   let sawRemote = false
   let strictPort = false
-  let noCloud = false
-  let directCloud = false
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
@@ -221,14 +164,6 @@ export function parseArgs(argv: string[]): ParsedArgs {
       openBrowser = false
       continue
     }
-    if (arg === "--no-cloud") {
-      noCloud = true
-      continue
-    }
-    if (arg === "--cloud") {
-      directCloud = true
-      continue
-    }
     if (arg === "--password") {
       const next = argv[index + 1]
       if (!next || next.startsWith("-")) throw new Error("Missing value for --password")
@@ -243,14 +178,6 @@ export function parseArgs(argv: string[]): ParsedArgs {
     if (!arg.startsWith("-")) throw new Error(`Unexpected positional argument: ${arg}`)
   }
 
-  if (directCloud) {
-    if (noCloud) throw new Error("--cloud cannot be used with --no-cloud")
-    if (isShareEnabled(share)) throw new Error(`--cloud cannot be used with ${getShareCliFlag(share)}`)
-    if (sawHost || sawRemote) throw new Error("--cloud cannot be used with --host or --remote")
-    // The sandbox ingress reaches the server from outside loopback.
-    host = "0.0.0.0"
-  }
-
   return {
     kind: "run",
     options: {
@@ -260,8 +187,6 @@ export function parseArgs(argv: string[]): ParsedArgs {
       share,
       password,
       strictPort,
-      noCloud,
-      directCloud,
     },
   }
 }
@@ -291,43 +216,6 @@ function normalizeVersion(version: string) {
     .filter((part) => Number.isFinite(part))
 }
 
-async function maybeSelfUpdate(_argv: string[], deps: CliRuntimeDeps) {
-  if (process.env.KANNA_DISABLE_SELF_UPDATE === "1") {
-    return null
-  }
-
-  deps.log(`${LOG_PREFIX} checking for updates`)
-
-  let latestVersion: string
-  try {
-    latestVersion = await deps.fetchLatestVersion(PACKAGE_NAME)
-  }
-  catch (error) {
-    deps.warn(`${LOG_PREFIX} update check failed, continuing current version`)
-    if (error instanceof Error && error.message) {
-      deps.warn(`${LOG_PREFIX} ${error.message}`)
-    }
-    return null
-  }
-
-  if (!latestVersion || compareVersions(deps.version, latestVersion) >= 0) {
-    return null
-  }
-
-  deps.log(`${LOG_PREFIX} installing ${PACKAGE_NAME}@${latestVersion}`)
-  const installResult = deps.installVersion(PACKAGE_NAME, latestVersion)
-  if (!installResult.ok) {
-    deps.warn(`${LOG_PREFIX} update failed, continuing current version`)
-    if (installResult.userMessage) {
-      deps.warn(`${LOG_PREFIX} ${installResult.userMessage}`)
-    }
-    return null
-  }
-
-  deps.log(`${LOG_PREFIX} restarting into updated version`)
-  return "startup_update"
-}
-
 export async function runCli(argv: string[], deps: CliRuntimeDeps): Promise<CliRunResult> {
   let parsedArgs = parseArgs(argv)
   if (parsedArgs.kind === "version") {
@@ -337,21 +225,6 @@ export async function runCli(argv: string[], deps: CliRuntimeDeps): Promise<CliR
   if (parsedArgs.kind === "help") {
     printHelp()
     return { kind: "exited", code: 0 }
-  }
-
-  if (parsedArgs.kind === "pair") {
-    const code = await (deps.runPairCommandImpl ?? runPairCommand)(parsedArgs.args, {
-      log: deps.log,
-      warn: deps.warn,
-    })
-    if (code !== 0 || parsedArgs.args.action !== "pair") {
-      return { kind: "exited", code }
-    }
-    // Successful pairing flows straight into a normal run — the machine
-    // comes online immediately and the hosted URL opens once the tunnel
-    // connects. From then on any plain `kanna` does the same (sticky).
-    deps.log(`${LOG_PREFIX} starting ${CLI_COMMAND}…`)
-    parsedArgs = parseArgs([])
   }
 
   if (parsedArgs.kind !== "run") {
@@ -365,67 +238,29 @@ export async function runCli(argv: string[], deps: CliRuntimeDeps): Promise<CliR
     return { kind: "exited", code: 1 }
   }
 
-  const shouldRestart = await maybeSelfUpdate(argv, deps)
-  if (shouldRestart !== null) {
-    return { kind: "restarting", reason: shouldRestart }
-  }
-
-  const readIdentity = deps.readCloudIdentityImpl
-    ?? ((warn: (message: string) => void) => readCloudIdentity(undefined, warn))
-  let identity = await readIdentity((message) => deps.warn(`${LOG_PREFIX} ${message}`))
-  if (runOptions.directCloud) {
-    if (!identity) {
-      deps.warn(`${LOG_PREFIX} --cloud needs a provisioned cloud identity (~/.kanna/cloud.json) — dev-boxes get one from kanna.sh`)
-      return { kind: "exited", code: 1 }
-    }
-    // The flag is explicit intent: force direct mode and ignore a sticky disable.
-    identity = { ...identity, mode: "direct", enabled: true }
-  }
   const suppressOpenBrowser = process.env[CLI_SUPPRESS_OPEN_ONCE_ENV_VAR] === "1"
 
   // Single-instance guard: two servers on one data dir mean two JSONL
-  // writers — and, when paired, two tunnel connectors load-balancing between
-  // divergent processes. If this data dir is already being served on the
-  // configured port, just point the user (and browser) at it. A different
-  // fingerprint (e.g. dev profile) keeps the try-next-port behavior.
+  // writers. If this data dir is already being served on the configured
+  // port, just point the user (and browser) at it. A different fingerprint
+  // (e.g. dev profile) keeps the try-next-port behavior.
   const existing = await (deps.probeExistingInstanceImpl ?? probeExistingInstance)(runOptions.port)
   if (existing) {
-    const hostedUrl = identity?.enabled ? identity.appOrigin : null
-    deps.log(`${LOG_PREFIX} kanna is already running at ${existing.localUrl}${hostedUrl ? ` (and ${hostedUrl})` : ""}`)
-    if (hostedUrl) {
-      deps.log(`${LOG_PREFIX} if the hosted URL shows offline, restart the running ${CLI_COMMAND} to pick up the pairing`)
-    }
+    deps.log(`${LOG_PREFIX} kanna is already running at ${existing.localUrl}`)
     if (runOptions.openBrowser && !suppressOpenBrowser) {
-      deps.openUrl(hostedUrl ?? existing.localUrl)
+      deps.openUrl(existing.localUrl)
     }
     return { kind: "exited", code: 0 }
   }
 
-  // Sticky cloud auto-enable: a paired machine (cloud.json with
-  // enabled:true) comes online on every plain `kanna` run. `--no-cloud` skips
-  // it once; --share/--host/--remote imply a different exposure and win.
-  let cloudRuntime: CloudRuntime | null = null
-  const cloudEligible =
-    !runOptions.noCloud &&
-    !isShareEnabled(runOptions.share) &&
-    (runOptions.host === "127.0.0.1" || runOptions.directCloud)
-  if (cloudEligible && identity?.enabled) {
-    cloudRuntime = (deps.createCloudRuntimeImpl ?? createCloudRuntime)(identity)
-  }
-
   const started = await deps.startServer({
     ...runOptions,
-    trustProxy: isShareEnabled(runOptions.share) || cloudRuntime !== null,
-    cloud: cloudRuntime,
-    // Unpaired but cloud-capable: the sidebar can claim this machine in one
-    // click and the server attaches the runtime without a restart.
-    allowCloudPairing: cloudEligible && !identity,
+    trustProxy: isShareEnabled(runOptions.share),
     onMigrationProgress: deps.log,
     update: {
       version: deps.version,
       fetchLatestVersion: deps.fetchLatestVersion,
       installVersion: deps.installVersion,
-      installNightly: deps.installNightly,
       argv,
       command: CLI_COMMAND,
     },
@@ -465,38 +300,13 @@ export async function runCli(argv: string[], deps: CliRuntimeDeps): Promise<CliR
     }
   }
 
-  if (cloudRuntime) {
-    const runtime = cloudRuntime
-    // Paired machines open the hosted URL — the one that works from every
-    // device — once the tunnel is actually serving (opening it earlier would
-    // land on the offline page).
-    const openHostedOnConnect = runOptions.openBrowser && !suppressOpenBrowser
-    let openedHosted = false
-    runtime.start({
-      localUrl: launchUrl,
-      log: (message) => deps.log(`${LOG_PREFIX} ${message}`),
-      warn: (message) => deps.warn(`${LOG_PREFIX} ${message}`),
-      onTunnelUp: (kind) => {
-        started.analytics?.track(kind === "started" ? "cloud_tunnel_started" : "cloud_tunnel_recovered")
-        if (openHostedOnConnect && !openedHosted) {
-          openedHosted = true
-          deps.openUrl(runtime.identity.appOrigin)
-        }
-      },
-    })
-    // The supervisor logs `cloud: connected (…)` when the tunnel is live —
-    // that's also when the browser opens.
-    deps.log(`${LOG_PREFIX} cloud: waiting for ${runtime.identity.appOrigin} to come online… (disable with \`${CLI_COMMAND} pair --disable\`)`)
-  }
-
-  if (runOptions.openBrowser && !isShareEnabled(runOptions.share) && !suppressOpenBrowser && !cloudRuntime) {
+  if (runOptions.openBrowser && !isShareEnabled(runOptions.share) && !suppressOpenBrowser) {
     deps.openUrl(launchUrl)
   }
 
   return {
     kind: "started",
     stop: async () => {
-      await cloudRuntime?.stop()
       shareTunnelStop?.()
       await stop()
     },
@@ -545,6 +355,43 @@ export function classifyInstallVersionFailure(output: string): UpdateInstallAtte
     errorCode: "install_failed",
     userTitle: "Update failed",
     userMessage: "Kanna could not install the update. Try again later.",
+  }
+}
+
+function bunGlobalDir(): string {
+  return process.env.BUN_INSTALL || path.join(homedir(), ".bun")
+}
+
+/**
+ * Strip corrupt entries from Bun's global package manifest. A global install
+ * of `.` is mis-parsed by Bun: it installs nothing but records a junk
+ * dependency (key "" or "@", value "." / "@."). While one is present, Bun
+ * refuses EVERY further global install with a DependencyLoop error, so the
+ * installer repairs the manifest first. Returns true when it was repaired.
+ */
+export function repairBunGlobalManifest(globalDir = bunGlobalDir()): boolean {
+  const manifestPath = path.join(globalDir, "install", "global", "package.json")
+  try {
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { dependencies?: Record<string, unknown> }
+    const dependencies = manifest.dependencies
+    if (!dependencies) return false
+    let repaired = false
+    for (const [name, value] of Object.entries(dependencies)) {
+      const junkName = name === "" || name === "@"
+      // A junk value is a bare ".", optionally prefixed with "@" or "file:".
+      const junkValue = typeof value === "string" && /^(?:@|file:)?\.$/.test(value)
+      if (junkName || junkValue) {
+        delete dependencies[name]
+        repaired = true
+      }
+    }
+    if (repaired) {
+      writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n")
+    }
+    return repaired
+  } catch {
+    // Missing or unreadable manifest — nothing to repair.
+    return false
   }
 }
 

@@ -275,7 +275,7 @@ export function buildHandoffContext(args: {
 
   const fromLabel = providerLabel(args.fromProvider)
   const intro = args.reason === "session_restore"
-    ? "Your previous session for this conversation could not be resumed — its native session data is no longer available (coding-agent CLIs clean up old session files). The conversation has been restored from Kanna's saved transcript; you are continuing the same conversation, not taking over from another agent."
+    ? "Your previous session for this conversation could not be resumed — its native session data is no longer available (coding-agent CLIs clean up old session files). The conversation has been restored from a saved transcript; you are continuing the same conversation, not taking over from another agent."
     : `This conversation is being handed off to you from another coding agent (${fromLabel}). You are taking over mid-conversation.`
   const text = [
     "<system-message>",

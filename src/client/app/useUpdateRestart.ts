@@ -172,7 +172,7 @@ export function useUpdateRestart(params: {
   }, [setCommandError, socket])
 
   const runInstallCommand = useCallback(async (
-    command: { type: "update.install" | "update.installNightly" | "update.installStable" },
+    command: { type: "update.install" },
     failureTitle: string,
     failureMessage: string
   ) => {
@@ -212,33 +212,5 @@ export function useUpdateRestart(params: {
     )
   }, [runInstallCommand])
 
-  const handleInstallNightly = useCallback(async () => {
-    const confirmed = await dialog.confirm({
-      title: "Update to nightly?",
-      description: "Kanna will download the latest main branch from GitHub, build it from source on this machine, and restart into it. This takes a few minutes, and nightly builds can be less stable than releases. The next published release brings you back to stable automatically.",
-      confirmLabel: "Build nightly",
-    })
-    if (!confirmed) return
-    await runInstallCommand(
-      { type: "update.installNightly" },
-      "Nightly update failed",
-      "Kanna could not build the nightly version. Try again later."
-    )
-  }, [dialog, runInstallCommand])
-
-  const handleInstallStable = useCallback(async () => {
-    const confirmed = await dialog.confirm({
-      title: "Back to stable?",
-      description: "Kanna will reinstall the latest published release and restart into it.",
-      confirmLabel: "Reinstall stable",
-    })
-    if (!confirmed) return
-    await runInstallCommand(
-      { type: "update.installStable" },
-      "Update failed",
-      "Kanna could not reinstall the latest release. Try again later."
-    )
-  }, [dialog, runInstallCommand])
-
-  return { updateSnapshot, handleCheckForUpdates, handleInstallUpdate, handleInstallNightly, handleInstallStable }
+  return { updateSnapshot, handleCheckForUpdates, handleInstallUpdate }
 }

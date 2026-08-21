@@ -308,7 +308,7 @@ export function SettingsPage() {
                 ) : selectedPage === "usage" ? (
                   <UsageSection state={state} />
                 ) : selectedPage === "labs" ? (
-                  <LabsSection state={state} appVersion={appVersion} />
+                  <LabsSection state={state} />
                 ) : (
                   <ChangelogSection
                     status={changelog.status}

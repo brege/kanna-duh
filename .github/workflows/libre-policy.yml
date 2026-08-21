@@ -1,0 +1,28 @@
+name: Libre policy
+
+# Mechanical enforcement of docs/libre-policy.md. Fails the build when an
+# upstream sync reintroduces a removed anti-feature or adds an outbound
+# destination that is not on the allowlist.
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  policy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - run: bun install --frozen-lockfile
+
+      - name: Check anti-feature policy
+        run: bun run check:policy
+
+      - name: Typecheck
+        run: bunx tsc --noEmit
+
+      - name: Test
+        run: bun test

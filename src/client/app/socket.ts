@@ -26,9 +26,7 @@ interface SubscriptionEntry<TSnapshot, TEvent = never> {
 
 /**
  * Where to connect: a fixed URL, or an async provider resolved before every
- * connection attempt. Cloud mode uses a provider that fetches
- * /api/cloud/ws-endpoint so each (re)connect picks up the current tunnel URL
- * and a fresh connect token.
+ * connection attempt.
  */
 export type WsUrlSource = string | (() => Promise<string>)
 
@@ -183,10 +181,9 @@ export class KannaSocket {
       return
     }
 
-    // Async provider (cloud mode): resolve the URL before each attempt so
-    // reconnects pick up rotated tunnel URLs and fresh connect tokens. The
-    // sequence counter drops stale resolves when a newer connect attempt (or
-    // dispose) started meanwhile.
+    // Async provider: resolve the URL before each attempt. The sequence
+    // counter drops stale resolves when a newer connect attempt (or dispose)
+    // started meanwhile.
     const seq = ++this.connectSeq
     this.urlSource()
       .then((url) => {

@@ -21,7 +21,6 @@ import { ChatPage } from "./ChatPage"
 import { LocalProjectsPage } from "./LocalProjectsPage"
 import { OpenRouterCallbackPage } from "./OpenRouterCallbackPage"
 import { SettingsPage } from "./SettingsPage"
-import { TerminalPage } from "./TerminalPage"
 import { useKannaState } from "./useKannaState"
 import { useSidebarStore } from "../stores/sidebarStore"
 import type { AppSettingsSnapshot } from "../../shared/types"
@@ -247,7 +246,7 @@ function KannaLayout() {
 
   const chatSoundPreference = useChatSoundPreferencesStore((store) => store.chatSoundPreference)
   const chatSoundId = useChatSoundPreferencesStore((store) => store.chatSoundId)
-  const showMobileOpenButton = location.pathname === "/" || location.pathname === "/terminal"
+  const showMobileOpenButton = location.pathname === "/"
   // Selected as the finished string rather than derived from the snapshot: the
   // title changes when a chat is renamed or a badge count moves, and this hook
   // should not re-render the layout for anything else the sidebar carries.
@@ -398,15 +397,14 @@ function KannaLayout() {
       <SetupWizard />
       <CommandPalette state={state} />
       <StandaloneShareDialog
-        open={Boolean(state.standaloneShareUrl)}
-        shareUrl={state.standaloneShareUrl ?? ""}
+        open={Boolean(state.standaloneExportPath)}
+        exportPath={state.standaloneExportPath ?? ""}
         onOpenChange={(open) => {
           if (!open) {
             state.handleCloseStandaloneShareDialog()
           }
         }}
-        onOpenLink={state.handleOpenStandaloneShareLink}
-        onCopyLink={state.handleCopyStandaloneShareLink}
+        onCopyPath={state.handleCopyStandaloneExportPath}
       />
     </div>
   )
@@ -438,7 +436,6 @@ export function App() {
             <Route path="/settings" element={<Navigate to="/settings/general" replace />} />
             <Route path="/settings/:sectionId" element={<SettingsPage />} />
             <Route path="/chat/:chatId" element={<ChatPage />} />
-            <Route path="/terminal" element={<TerminalPage />} />
           </Route>
         </Routes>
       </AppDialogProvider>

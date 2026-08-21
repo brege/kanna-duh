@@ -126,12 +126,6 @@ export const SETTINGS_ROWS = defineRows({
     title: "Terminal Min Column Width",
     description: "Minimum width for each terminal pane",
   },
-  anonymousAnalytics: {
-    sectionId: "general",
-    title: "Anonymous Analytics",
-    description: "Help improve Kanna with anonymous product analytics.",
-    keywords: ["telemetry", "privacy", "tracking"],
-  },
 
   // Providers
   defaultProvider: {

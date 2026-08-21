@@ -231,7 +231,6 @@ export interface ProviderAuthManagerDeps {
   fetchLatestNpmVersion?: (packageName: string) => Promise<string>
   resolveCommandPath?: (command: string) => string | null
   onSignedIn?: (service: AuthServiceId) => void
-  trackEvent?: (eventName: string, properties?: Record<string, unknown>) => void
   sleep?: (ms: number) => Promise<void>
   platform?: NodeJS.Platform
   now?: () => number
@@ -530,7 +529,6 @@ export class ProviderAuthManager {
     if (current.installState === "installing") return
 
     this.patchService(service, { installState: "installing", installError: null })
-    this.deps.trackEvent?.("auth_cli_install_started", { service })
 
     try {
       const command = this.installCommand(service)
@@ -546,13 +544,11 @@ export class ProviderAuthManager {
       this.commandPaths.delete(CLI_BINARIES[service])
       this.lastVersionCheckAt = null
       this.patchService(service, { installState: "idle", installError: null })
-      this.deps.trackEvent?.("auth_cli_install_succeeded", { service })
       await this.probeService(service)
       void this.checkLatestVersions().catch(() => undefined)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       this.patchService(service, { installState: "error", installError: message })
-      this.deps.trackEvent?.("auth_cli_install_failed", { service })
     }
   }
 
@@ -631,7 +627,6 @@ export class ProviderAuthManager {
     }
     this.flows.set(service, flow)
     this.setLogin(service, { phase: "starting" })
-    this.deps.trackEvent?.("auth_login_started", { service })
 
     // Overall watchdog: never leave a flow hanging forever.
     flow.timers.push(setTimeout(() => {
@@ -674,7 +669,6 @@ export class ProviderAuthManager {
         if (this.services.get(service)!.authStatus === "signed_in") {
           this.teardownFlow(service)
           this.setLogin(service, { phase: "idle" })
-          this.deps.trackEvent?.("auth_login_succeeded", { service })
           this.deps.onSignedIn?.(service)
         }
       })()
@@ -711,7 +705,6 @@ export class ProviderAuthManager {
       this.teardownFlow(flow.service)
     }
     this.setLogin(flow.service, { phase: "error", message, hint })
-    this.deps.trackEvent?.("auth_login_failed", { service: flow.service })
   }
 
   /** Re-probe after a flow reports success; only a verified signed-in state counts. */
@@ -727,7 +720,6 @@ export class ProviderAuthManager {
     const snapshot = this.services.get(service)!
     if (snapshot.authStatus === "signed_in") {
       this.setLogin(service, { phase: "idle" })
-      this.deps.trackEvent?.("auth_login_succeeded", { service })
       this.deps.onSignedIn?.(service)
     } else {
       this.setLogin(service, {
@@ -735,7 +727,6 @@ export class ProviderAuthManager {
         message: "Sign-in finished but the CLI still reports signed out.",
         hint: null,
       })
-      this.deps.trackEvent?.("auth_login_failed", { service })
     }
   }
 
@@ -1072,7 +1063,6 @@ export class ProviderAuthManager {
       faveModels: current.faveModels,
     })
     await this.probeService("openrouter")
-    this.deps.trackEvent?.("auth_login_succeeded", { service: "openrouter" })
     this.deps.onSignedIn?.("openrouter")
     return snapshot
   }

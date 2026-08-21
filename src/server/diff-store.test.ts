@@ -3,7 +3,6 @@ import { mkdir, mkdtemp, readFile, rm, symlink, utimes, writeFile } from "node:f
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { appendGitIgnoreEntry, DiffStore, extractGitHubRepoSlug, fetchGitHubPullRequests, probeWorkingTree, resolveWorkingTreeLocation } from "./diff-store"
-import { KANNA_COMMIT_FOOTER, KANNA_COMMIT_TRAILER } from "./attribution"
 
 async function run(command: string[], cwd: string) {
   const process = Bun.spawn(command, {
@@ -233,49 +232,7 @@ describe("DiffStore", () => {
     expect(snapshot.files[0]?.path).toBe("notes.txt")
 
     const lastMessage = (await run(["git", "log", "-1", "--pretty=%B"], repoRoot)).trim()
-    expect(lastMessage).toBe(`Update app\n\nOnly app changes\n\n${KANNA_COMMIT_FOOTER}\n\n${KANNA_COMMIT_TRAILER}`)
-  })
-
-  test("does not duplicate Kanna attribution the author already typed", async () => {
-    const repoRoot = await createRepo()
-    await writeFile(path.join(repoRoot, "app.txt"), "changed\n")
-
-    const store = new DiffStore(repoRoot)
-    await store.initialize()
-    await store.refreshSnapshot("project-1", repoRoot)
-
-    await store.commitFiles({
-      projectId: "project-1",
-      projectPath: repoRoot,
-      paths: ["app.txt"],
-      summary: "Update app",
-      description: `Body text\n\n${KANNA_COMMIT_FOOTER}\n\n${KANNA_COMMIT_TRAILER}`,
-      mode: "commit_only",
-    })
-
-    const lastMessage = (await run(["git", "log", "-1", "--pretty=%B"], repoRoot)).trim()
-    expect(lastMessage).toBe(`Update app\n\nBody text\n\n${KANNA_COMMIT_FOOTER}\n\n${KANNA_COMMIT_TRAILER}`)
-  })
-
-  test("adds only the attribution the author is missing", async () => {
-    const repoRoot = await createRepo()
-    await writeFile(path.join(repoRoot, "app.txt"), "changed\n")
-
-    const store = new DiffStore(repoRoot)
-    await store.initialize()
-    await store.refreshSnapshot("project-1", repoRoot)
-
-    await store.commitFiles({
-      projectId: "project-1",
-      projectPath: repoRoot,
-      paths: ["app.txt"],
-      summary: "Update app",
-      description: `Body text\n\n${KANNA_COMMIT_FOOTER}`,
-      mode: "commit_only",
-    })
-
-    const lastMessage = (await run(["git", "log", "-1", "--pretty=%B"], repoRoot)).trim()
-    expect(lastMessage).toBe(`Update app\n\nBody text\n\n${KANNA_COMMIT_FOOTER}\n\n${KANNA_COMMIT_TRAILER}`)
+    expect(lastMessage).toBe("Update app\n\nOnly app changes")
   })
 
   test("commits a deletion that is already staged (e.g. an agent ran git rm)", async () => {

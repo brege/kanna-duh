@@ -1,23 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
-import { Check, ChevronLeft, Cloud, Flower } from "lucide-react"
+import { Check, ChevronLeft, Flower } from "lucide-react"
 import { AUTH_SERVICE_LABELS, type AuthServiceId } from "../../../shared/types"
 import { cn } from "../../lib/utils"
-import { displayClaimUrl } from "../../lib/pairSession"
 import { useProviderAuthStore, useSetupStatus, selectAuthService } from "../../stores/providerAuthStore"
-import { CloudPairPanel } from "../cloud/CloudPairPanel"
-import { useCloudPairSession } from "../cloud/useCloudPairSession"
 import { AUTH_SERVICE_ICONS } from "../provider-icons"
 import { Button } from "../ui/button"
 import { AuthCard } from "./AuthCard"
 
-/**
- * The cloud step is dropped entirely when this machine can't use it (already
- * paired, or a run that can't pair in place), so the progress bar never
- * promises a step that won't appear.
- */
 const BASE_STEPS = ["github", "agents", "openrouter"] as const
-type SetupStep = (typeof BASE_STEPS)[number] | "cloud" | "done"
+type SetupStep = (typeof BASE_STEPS)[number] | "done"
 
 /** Auto-advance delay after a skippable step connects — long enough to see the ✓ land. */
 const AUTO_ADVANCE_MS = 900
@@ -95,8 +87,7 @@ function StepFooter({
 /**
  * Full-screen, distraction-free onboarding flow:
  *   1. GitHub (skippable) → 2. at least one coding agent → 3. OpenRouter
- *   (skippable) → 4. Kanna Cloud (skippable, omitted when unavailable) →
- *   5. done. Reuses the AuthCard sign-in mechanics; steps that are already
+ *   (skippable) → 4. done. Reuses the AuthCard sign-in mechanics; steps that are already
  * satisfied are skipped on open, and skippable steps auto-advance the moment
  * they connect.
  */
@@ -118,28 +109,7 @@ export function SetupWizard() {
   const [step, setStep] = useState<SetupStep>("github")
   const wasOpenRef = useRef(false)
 
-  const cloud = useCloudPairSession({ enabled: open })
-  // Decided once per open, from the first status that lands: a machine that
-  // pairs mid-wizard must not yank its own step out from under itself.
-  const [cloudStepEnabled, setCloudStepEnabled] = useState(false)
-  const cloudDecidedRef = useRef(false)
-  const cloudStartedRef = useRef(false)
-
-  useEffect(() => {
-    if (!open) {
-      cloudDecidedRef.current = false
-      cloudStartedRef.current = false
-      return
-    }
-    if (cloudDecidedRef.current || !cloud.loaded) return
-    cloudDecidedRef.current = true
-    setCloudStepEnabled(cloud.session.status !== "paired" && cloud.session.status !== "unsupported")
-  }, [open, cloud.loaded, cloud.session.status])
-
-  const steps = useMemo<SetupStep[]>(
-    () => [...BASE_STEPS, ...(cloudStepEnabled ? (["cloud"] as const) : []), "done"],
-    [cloudStepEnabled]
-  )
+  const steps = useMemo<SetupStep[]>(() => [...BASE_STEPS, "done"], [])
 
   // On open, start at the first unsatisfied step (all satisfied → done).
   useEffect(() => {
@@ -154,16 +124,6 @@ export function SetupWizard() {
     wasOpenRef.current = open
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
-
-  // Entering the cloud step mints the claim URL (once — the server hands back
-  // the live session if one is already open).
-  const cloudStatus = cloud.session.status
-  const beginCloudPairing = cloud.begin
-  useEffect(() => {
-    if (step !== "cloud" || cloudStartedRef.current || cloudStatus === "paired") return
-    cloudStartedRef.current = true
-    beginCloudPairing()
-  }, [step, cloudStatus, beginCloudPairing])
 
   // Auto-advance skippable steps on the false→true connect transition only,
   // so navigating Back to an already-connected step doesn't bounce forward.
@@ -180,22 +140,10 @@ export function SetupWizard() {
       return () => clearTimeout(timer)
     }
     if (step === "openrouter" && openRouterJustConnected) {
-      const timer = setTimeout(() => setStep(cloudStepEnabled ? "cloud" : "done"), AUTO_ADVANCE_MS)
+      const timer = setTimeout(() => setStep("done"), AUTO_ADVANCE_MS)
       return () => clearTimeout(timer)
     }
-  }, [open, step, status.githubConnected, status.openRouterConnected, cloudStepEnabled])
-
-  // Same treatment for the cloud step: let the "you're live" state land, then
-  // move on. The machine keeps connecting in the background either way.
-  const machinePaired = cloud.session.status === "paired"
-  const prevPairedRef = useRef(machinePaired)
-  useEffect(() => {
-    const justPaired = !prevPairedRef.current && machinePaired
-    prevPairedRef.current = machinePaired
-    if (!open || step !== "cloud" || !justPaired) return
-    const timer = setTimeout(() => setStep("done"), AUTO_ADVANCE_MS * 2)
-    return () => clearTimeout(timer)
-  }, [open, step, machinePaired])
+  }, [open, step, status.githubConnected, status.openRouterConnected])
 
   const stepIndex = steps.indexOf(step)
   const progressPercent = ((stepIndex + 1) / steps.length) * 100
@@ -294,28 +242,6 @@ export function SetupWizard() {
             </>
           ) : null}
 
-          {step === "cloud" ? (
-            <>
-              <StepHeading
-                title="Use this machine from anywhere"
-                description="Get a personal URL that works from any browser, 100% free. Open the link or scan it with your phone — this machine comes online on its own."
-              />
-              <div className="mt-8">
-                <CloudPairPanel
-                  session={cloud.session}
-                  starting={cloud.starting}
-                  onRetry={cloud.begin}
-                />
-              </div>
-              <StepFooter
-                canContinue={machinePaired}
-                onContinue={goNext}
-                onBack={goBack}
-                onSkip={!machinePaired ? goNext : undefined}
-              />
-            </>
-          ) : null}
-
           {step === "done" ? (
             <>
               <div className="flex flex-col items-center gap-4">
@@ -349,31 +275,6 @@ export function SetupWizard() {
                     </div>
                   )
                 })}
-                {cloudStepEnabled ? (
-                  <div className="flex items-center gap-2.5 rounded-2xl border border-border bg-card/40 px-3.5 py-2.5">
-                    <Cloud
-                      className={cn(
-                        "h-4 w-4 shrink-0",
-                        machinePaired ? "text-foreground" : "text-muted-foreground/50"
-                      )}
-                    />
-                    <span
-                      className={cn(
-                        "flex-1 truncate text-sm",
-                        machinePaired ? "font-medium text-foreground" : "text-muted-foreground"
-                      )}
-                    >
-                      {machinePaired && cloud.session.appOrigin
-                        ? displayClaimUrl(cloud.session.appOrigin)
-                        : "Kanna Cloud"}
-                    </span>
-                    {machinePaired ? (
-                      <Check className="h-4 w-4 shrink-0 text-emerald-500" />
-                    ) : (
-                      <span className="shrink-0 text-xs text-muted-foreground/70">Skipped</span>
-                    )}
-                  </div>
-                ) : null}
               </div>
               <div className="mt-auto pt-10">
                 <Button className="h-11 w-full" onClick={handleComplete}>

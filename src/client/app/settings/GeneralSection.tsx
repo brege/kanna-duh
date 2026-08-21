@@ -1,11 +1,8 @@
 import { useEffect, useState } from "react"
 import { Monitor, Moon, Sun } from "lucide-react"
-import { ANALYTICS_STATIC_EVENT_NAMES, ANALYTICS_STATIC_PROPERTY_NAMES } from "../../../shared/analytics"
 import type { EditorPreset } from "../../../shared/protocol"
 import { DEFAULT_NEW_PROJECTS_DIRECTORY } from "../../../shared/types"
 import { EDITOR_OPTIONS, EditorIcon } from "../../components/editor-icons"
-import { Button } from "../../components/ui/button"
-import { Dialog, DialogBody, DialogContent, DialogFooter, DialogTitle } from "../../components/ui/dialog"
 import { Input } from "../../components/ui/input"
 import { SegmentedControl } from "../../components/ui/segmented-control"
 import {
@@ -31,7 +28,6 @@ import {
 import { CHAT_SOUND_OPTIONS, useChatSoundPreferencesStore, type ChatSoundId, type ChatSoundPreference } from "../../stores/chatSoundPreferencesStore"
 import type { KannaState } from "../useKannaState"
 import {
-  ENABLED_DISABLED_OPTIONS,
   handleSettingsInputKeyDown,
   SettingsErrorBanner,
   SettingsRow,
@@ -82,7 +78,6 @@ export function GeneralSection({
   const newProjectsDirectory = appSettings?.newProjectsDirectory ?? DEFAULT_NEW_PROJECTS_DIRECTORY
   const [newProjectsDirectoryDraft, setNewProjectsDirectoryDraft] = useState(newProjectsDirectory)
   const [appSettingsError, setAppSettingsError] = useState<string | null>(null)
-  const [analyticsDialogOpen, setAnalyticsDialogOpen] = useState(false)
 
   const updateStatusLabel = updateSnapshot?.status === "checking"
     ? "Checking for updates…"
@@ -202,20 +197,10 @@ export function GeneralSection({
     void playChatNotificationSound(nextValue, 1).catch(() => undefined)
   }
 
-  async function handleAnalyticsPreferenceChange(nextValue: "enabled" | "disabled") {
-    try {
-      setAppSettingsError(null)
-      await handleWriteAppSettings({ analyticsEnabled: nextValue === "enabled" })
-    } catch (error) {
-      setAppSettingsError(error instanceof Error ? error.message : "Unable to save analytics settings.")
-    }
-  }
-
   const customEditorPreview = editorCommandDraft
     .replaceAll("{path}", "/Users/jake/Projects/kanna/src/client/app/App.tsx")
     .replaceAll("{line}", "12")
     .replaceAll("{column}", "1")
-  const analyticsSettingValue = appSettings?.analyticsEnabled === false ? "disabled" : "enabled"
 
   return (
     <>
@@ -405,77 +390,7 @@ export function GeneralSection({
           </div>
         </SettingsRow>
 
-        <SettingsRow
-          def={SETTINGS_ROWS.anonymousAnalytics}
-          description={(
-            <>
-              <span>
-                Help improve Kanna with anonymous product analytics. Kanna sends tracked event names plus a small set of event properties like current version, environment, update version info, and launch flags. No message content, prompts, file paths, or provider credentials are sent.
-              </span>
-              <span className="mt-1 block">
-                Stored in {appSettings?.filePathDisplay ?? "~/.kanna/data/settings.json"}.
-                {" "}
-                <button
-                  type="button"
-                  onClick={() => setAnalyticsDialogOpen(true)}
-                  className="underline underline-offset-2 text-foreground hover:text-foreground/80"
-                >
-                  View tracked events
-                </button>
-              </span>
-              {appSettings?.warning ? (
-                <span className="mt-1 block">{appSettings.warning}</span>
-              ) : null}
-            </>
-          )}
-        >
-          <SegmentedControl
-            value={analyticsSettingValue}
-            onValueChange={(value) => {
-              void handleAnalyticsPreferenceChange(value)
-            }}
-            options={ENABLED_DISABLED_OPTIONS}
-            size="sm"
-          />
-        </SettingsRow>
       </div>
-      <Dialog open={analyticsDialogOpen} onOpenChange={setAnalyticsDialogOpen}>
-        <DialogContent size="lg">
-          <DialogBody className="space-y-4">
-            <DialogTitle>Tracked Events</DialogTitle>
-            <div className="text-sm text-muted-foreground">
-              Kanna sends these event names plus the limited property keys below, depending on the event type.
-            </div>
-            <div className="max-h-[60vh] overflow-auto rounded-lg border border-border bg-muted/40 p-3">
-              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Event Names
-              </div>
-              <ul className="mt-3 space-y-2 text-sm">
-                {ANALYTICS_STATIC_EVENT_NAMES.map((eventName) => (
-                  <li key={eventName} className="font-mono text-foreground">
-                    {eventName}
-                  </li>
-                ))}
-              </ul>
-              <div className="mt-6 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Property Keys
-              </div>
-              <ul className="mt-3 space-y-2 text-sm">
-                {ANALYTICS_STATIC_PROPERTY_NAMES.map((propertyName) => (
-                  <li key={propertyName} className="font-mono text-foreground">
-                    {propertyName}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </DialogBody>
-          <DialogFooter>
-            <Button variant="secondary" size="sm" onClick={() => setAnalyticsDialogOpen(false)}>
-              Close
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </>
   )
 }

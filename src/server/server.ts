@@ -3,21 +3,10 @@ import { stat } from "node:fs/promises"
 import { APP_NAME, getRuntimeProfile, LOG_PREFIX } from "../shared/branding"
 import type { ChatAttachment } from "../shared/types"
 import type { ShareMode } from "../shared/share"
-import {
-  CLOUD_BROWSER_PATH_PREFIX,
-  CLOUD_PAIR_SESSION_PATH,
-  CLOUD_WS_ENDPOINT_PATH,
-  type CloudWsEndpointResponse,
-} from "../shared/cloud-api"
 import { createAuthManager } from "./auth"
-import { classifyCloudRequest, isAllowedCloudWsUpgrade, type CloudRequestClass } from "./cloud/guard"
-import { createCloudRuntime, type CloudRuntime } from "./cloud"
-import { writeCloudIdentity } from "./cloud/identity"
-import { createPairSessionManager, type PairSessionSnapshot } from "./cloud/pair-session"
 import { EventStore } from "./event-store"
 import { AgentCoordinator } from "./agent"
 import { CodexAppServerManager } from "./codex-app-server"
-import { KannaAnalyticsReporter } from "./analytics"
 import { AppSettingsManager } from "./app-settings"
 import { UsageLimitsManager } from "./usage-limits"
 import { DiffStore } from "./diff-store"
@@ -35,7 +24,6 @@ import { getMachineDisplayName } from "./machine-name"
 import { TerminalManager } from "./terminal-manager"
 import { UpdateManager } from "./update-manager"
 import type { UpdateInstallAttemptResult } from "./cli-runtime"
-import type { NightlyInstallResult } from "./nightly"
 import { createWsRouter, type ClientState } from "./ws-router"
 import { instanceFingerprint } from "./instance"
 import { deleteProjectUpload, inferAttachmentContentType, inferProjectFileContentType, persistProjectUpload } from "./uploads"
@@ -104,31 +92,11 @@ export interface StartKannaServerOptions {
    * reachable solely through a trusted reverse proxy such as cloudflared.
    */
   trustProxy?: boolean
-  /**
-   * Cloud runtime shell (kanna.sh pairing). When set, requests are classified
-   * (proxied / local / untrusted raw-tunnel) before any other handling:
-   * proxied requests count as authenticated (the kanna.sh proxy gates them by
-   * account session), untrusted ones only see /health and the token-gated
-   * /ws upgrade.
-   */
-  cloud?: CloudRuntime | null
-  /**
-   * Offer device-code pairing from the sidebar (`/api/cloud/pair-session`).
-   * Set by the CLI when this run could host a cloud machine but isn't paired
-   * yet; claiming attaches the runtime in place, with no restart.
-   */
-  allowCloudPairing?: boolean
-  /**
-   * This machine is a cloud dev-box (`kanna --cloud`). Surfaced to the client
-   * through the app-settings snapshot to unlock dev-box-only UI.
-   */
-  directCloud?: boolean
   onMigrationProgress?: (message: string) => void
   update?: {
     version: string
     fetchLatestVersion: (packageName: string) => Promise<string>
     installVersion: (packageName: string, version: string) => UpdateInstallAttemptResult
-    installNightly?: () => Promise<NightlyInstallResult>
   }
 }
 
@@ -141,11 +109,6 @@ export async function startKannaServer(options: StartKannaServerOptions = {}) {
   const store = new EventStore(options.dataDir)
   const diffStore = new DiffStore(store.dataDir)
   const machineDisplayName = getMachineDisplayName()
-  // Mutable: device-code pairing can attach a cloud runtime mid-flight, and
-  // every request path below reads the current value.
-  let cloud: CloudRuntime | null = options.cloud ?? null
-  /** Only set when *this* process paired; the CLI owns a handed-in runtime. */
-  let selfPairedCloud: CloudRuntime | null = null
   await store.initialize()
   await diffStore.initialize()
   await store.migrateLegacyTranscripts(options.onMigrationProgress)
@@ -196,32 +159,20 @@ export async function startKannaServer(options: StartKannaServerOptions = {}) {
   }
   const terminals = new TerminalManager()
   const keybindings = new KeybindingsManager()
-  // Dev-box UI flag: the real thing is `kanna --cloud`; KANNA_DEVBOX_UI=1 is
-  // the dev-mode override (`bun run dev:cloud`) so the UI is developable
-  // without a cloud identity.
-  const devboxUi = Boolean(options.directCloud) || process.env.KANNA_DEVBOX_UI === "1"
-  const appSettings = new AppSettingsManager(path.join(store.dataDir, "settings.json"), { devbox: devboxUi })
+  const appSettings = new AppSettingsManager(path.join(store.dataDir, "settings.json"))
   await appSettings.initialize()
   await keybindings.initialize()
-  const analytics = new KannaAnalyticsReporter({
-    settings: appSettings,
-    currentVersion: options.update?.version ?? "unknown",
-    environment: runtimeProfile === "dev" ? "dev" : "prod",
-  })
   const updateManager = options.update
     ? new UpdateManager({
       currentVersion: options.update.version,
       fetchLatestVersion: options.update.fetchLatestVersion,
       installVersion: options.update.installVersion,
-      installNightly: options.update.installNightly,
       devMode: runtimeProfile === "dev",
-      trackEvent: analytics.track.bind(analytics),
     })
     : null
   const codexManager = new CodexAppServerManager()
   const agent = new AgentCoordinator({
     store,
-    analytics,
     codexManager,
     onStateChange: (chatId?: string, options?: { immediate?: boolean }) => {
       if (chatId) {
@@ -248,7 +199,6 @@ export async function startKannaServer(options: StartKannaServerOptions = {}) {
     readLlmProvider: readLlmProviderSnapshot,
     writeLlmProvider: writeLlmProviderSnapshot,
     fetchLatestNpmVersion: fetchLatestPackageVersion,
-    trackEvent: analytics.track.bind(analytics),
     onSignedIn: (service) => {
       // A fresh sign-in unlocks usage limits (claude/codex empty-state cards
       // flip from auth → usage) and the live Cursor model catalog.
@@ -272,7 +222,6 @@ export async function startKannaServer(options: StartKannaServerOptions = {}) {
     terminals,
     keybindings,
     appSettings,
-    analytics,
     usageLimits,
     llmProvider: {
       read: readLlmProviderSnapshot,
@@ -363,35 +312,6 @@ export async function startKannaServer(options: StartKannaServerOptions = {}) {
   const MAX_PORT_ATTEMPTS = 20
   let actualPort = port
 
-  // One-click cloud setup: the sidebar asks for a claim URL, the user opens
-  // it (or scans it) on any device, and pairing lands back here — credentials
-  // to ~/.kanna/cloud.json and the tunnel up, without restarting kanna.
-  const pairSession =
-    options.allowCloudPairing && !cloud
-      ? createPairSessionManager({
-          machineName: machineDisplayName,
-          log: (message) => console.log(`${LOG_PREFIX} ${message}`),
-          warn: (message) => console.warn(`${LOG_PREFIX} ${message}`),
-          onPaired: async (identity) => {
-            await writeCloudIdentity(identity)
-            const runtime = createCloudRuntime(identity)
-            cloud = runtime
-            selfPairedCloud = runtime
-            runtime.start({
-              // Byte-identical to the CLI's launch URL for a paired machine
-              // (cli-runtime builds `http://localhost:<port>`; pairing is only
-              // offered when we're bound to 127.0.0.1). The control plane
-              // re-syncs the tunnel's remote ingress whenever the reported
-              // local service changes, so a different spelling here would cost
-              // a pointless Cloudflare round-trip on the next boot.
-              localUrl: `http://localhost:${actualPort}`,
-              log: (message) => console.log(`${LOG_PREFIX} ${message}`),
-              warn: (message) => console.warn(`${LOG_PREFIX} ${message}`),
-            })
-          },
-        })
-      : null
-
   for (let attempt = 0; attempt < MAX_PORT_ATTEMPTS; attempt++) {
     try {
       server = Bun.serve<ClientState>({
@@ -399,17 +319,6 @@ export async function startKannaServer(options: StartKannaServerOptions = {}) {
         hostname,
         async fetch(req, serverInstance) {
           const url = new URL(req.url)
-          const requestClass: CloudRequestClass = cloud
-            ? classifyCloudRequest(req, cloud.identity.proxySecret)
-            : "local"
-
-          // The proxy answers /__cloud/* itself and never forwards it; the
-          // machine 404s the prefix explicitly so the client can
-          // feature-detect cloud mode (the SPA fallback would otherwise
-          // return index.html with a 200).
-          if (url.pathname === CLOUD_BROWSER_PATH_PREFIX || url.pathname.startsWith(`${CLOUD_BROWSER_PATH_PREFIX}/`)) {
-            return withOriginAgentCluster(Response.json({ error: "Not found" }, { status: 404 }))
-          }
 
           const upgradeWebSocket = () => {
             const upgraded = serverInstance.upgrade(req, {
@@ -419,30 +328,6 @@ export async function startKannaServer(options: StartKannaServerOptions = {}) {
               },
             })
             return upgraded ? undefined : new Response("WebSocket upgrade failed", { status: 400 })
-          }
-
-          const allowCloudWsUpgrade = () =>
-            cloud !== null &&
-            isAllowedCloudWsUpgrade(req, {
-              appOrigin: cloud.identity.appOrigin,
-              validateToken: cloud.connectTokens.validate,
-            })
-
-          // Raw tunnel traffic (not through the kanna.sh proxy, not local):
-          // expose only the public health check and the token-gated WS
-          // upgrade. Everything else 404s so the rotating tunnel URL leaks no
-          // surface.
-          if (requestClass === "untrusted") {
-            if (url.pathname === "/health") {
-              return withOriginAgentCluster(Response.json({ ok: true, port: actualPort }))
-            }
-            if (url.pathname === "/ws") {
-              if (allowCloudWsUpgrade()) {
-                return withOriginAgentCluster(upgradeWebSocket())
-              }
-              return withOriginAgentCluster(new Response("Unauthorized", { status: 401 }))
-            }
-            return withOriginAgentCluster(new Response("Not found", { status: 404 }))
           }
 
           if (url.pathname === "/auth/status") {
@@ -461,9 +346,7 @@ export async function startKannaServer(options: StartKannaServerOptions = {}) {
               : Response.json({ ok: true }))
           }
 
-          // Proxied requests skip password auth: the kanna.sh proxy already
-          // gated them by account session before forwarding.
-          if (auth && requestClass !== "proxied") {
+          if (auth) {
             if (url.pathname === "/auth/login") {
               if (req.method === "GET") {
                 return withOriginAgentCluster(auth.redirectToApp(req))
@@ -475,15 +358,11 @@ export async function startKannaServer(options: StartKannaServerOptions = {}) {
             }
 
             if (url.pathname === "/ws") {
-              // A valid cloud connect token is an alternative WS credential
-              // (minted through the proxied /api/cloud/ws-endpoint call).
-              if (!allowCloudWsUpgrade()) {
-                if (!auth.validateOrigin(req)) {
-                  return withOriginAgentCluster(new Response("Forbidden", { status: 403 }))
-                }
-                if (!auth.isAuthenticated(req)) {
-                  return withOriginAgentCluster(new Response("Unauthorized", { status: 401 }))
-                }
+              if (!auth.validateOrigin(req)) {
+                return withOriginAgentCluster(new Response("Forbidden", { status: 403 }))
+              }
+              if (!auth.isAuthenticated(req)) {
+                return withOriginAgentCluster(new Response("Unauthorized", { status: 401 }))
               }
             } else if (url.pathname.startsWith("/api/") && !auth.isAuthenticated(req)) {
               return withOriginAgentCluster(Response.json({ error: "Unauthorized" }, { status: 401 }))
@@ -496,55 +375,8 @@ export async function startKannaServer(options: StartKannaServerOptions = {}) {
 
           if (url.pathname === "/health") {
             // `instance` lets a second `kanna` invocation detect that this
-            // data dir is already being served (single-instance guard). Only
-            // exposed on local/proxied requests — the raw-tunnel /health
-            // above stays minimal.
+            // data dir is already being served (single-instance guard).
             return withOriginAgentCluster(Response.json({ ok: true, port: actualPort, instance: instanceFingerprint(store.dataDir) }))
-          }
-
-          if (url.pathname === CLOUD_PAIR_SESSION_PATH) {
-            // Local requests only: claiming a machine is something you do at
-            // the keyboard, never through the proxy or the raw tunnel.
-            if (requestClass !== "local") {
-              return withOriginAgentCluster(Response.json({ error: "Not found" }, { status: 404 }))
-            }
-            const respond = (snapshot: PairSessionSnapshot | { status: "unsupported" }) =>
-              Response.json(snapshot, { headers: { "Cache-Control": "no-store" } })
-
-            if (cloud) {
-              return withOriginAgentCluster(respond({ status: "paired", appOrigin: cloud.identity.appOrigin }))
-            }
-            if (!pairSession) {
-              return withOriginAgentCluster(respond({ status: "unsupported" }))
-            }
-            if (req.method === "POST") {
-              return withOriginAgentCluster(respond(await pairSession.start()))
-            }
-            if (req.method === "GET") {
-              return withOriginAgentCluster(respond(pairSession.status()))
-            }
-            return withOriginAgentCluster(new Response(null, { status: 405, headers: { Allow: "GET, POST" } }))
-          }
-
-          if (url.pathname === CLOUD_WS_ENDPOINT_PATH) {
-            if (req.method !== "GET") {
-              return withOriginAgentCluster(new Response(null, { status: 405, headers: { Allow: "GET" } }))
-            }
-            // Proxied requests get the machine's permanent tunnel WS URL + a
-            // short-lived token so the browser's WebSocket bypasses the proxy
-            // entirely. Local requests get null → same-origin connect. The
-            // hostname is static (named tunnel), so no runtime tunnel state.
-            if (cloud && requestClass === "proxied") {
-              const minted = cloud.connectTokens.mint()
-              const payload: CloudWsEndpointResponse = {
-                wsUrl: `wss://${cloud.identity.tunnelHost}/ws`,
-                connectToken: minted.token,
-                expiresInMs: minted.expiresInMs,
-              }
-              return withOriginAgentCluster(Response.json(payload, { headers: { "Cache-Control": "no-store" } }))
-            }
-            const payload: CloudWsEndpointResponse = { wsUrl: null }
-            return withOriginAgentCluster(Response.json(payload, { headers: { "Cache-Control": "no-store" } }))
           }
 
           const uploadResponse = await handleProjectUpload(req, url, store)
@@ -593,21 +425,7 @@ export async function startKannaServer(options: StartKannaServerOptions = {}) {
     }
   }
 
-  analytics.trackLaunch({
-    port: actualPort,
-    host: hostname,
-    openBrowser: options.openBrowser ?? true,
-    share: options.share ?? false,
-    password: options.password ?? null,
-    strictPort,
-    cloud: Boolean(options.cloud),
-  })
-
   const shutdown = async () => {
-    pairSession?.stop()
-    // A runtime handed in by the CLI is stopped by the CLI; one this process
-    // attached at pair time is ours to take down.
-    await selfPairedCloud?.stop()
     clearInterval(staleEmptyChatPruneInterval)
     clearInterval(staleChatAutoArchiveInterval)
     clearInterval(staleChatDeleteInterval)
@@ -630,7 +448,6 @@ export async function startKannaServer(options: StartKannaServerOptions = {}) {
     store,
     diffStore,
     updateManager,
-    analytics,
     stop: shutdown,
   }
 }
@@ -893,8 +710,7 @@ function getStaticHeaders(requestedPath: string) {
   }
 
   // Vite emits content-hashed filenames under /assets/ — safe to cache
-  // forever. Matters most in cloud mode, where every uncached asset request
-  // pays proxy + D1 + tunnel latency on top of the local read.
+  // forever.
   if (requestedPath.startsWith("/assets/")) {
     return {
       "Cache-Control": "public, max-age=31536000, immutable",

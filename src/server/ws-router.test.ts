@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { mkdtemp, rm, stat, writeFile } from "node:fs/promises"
 import { homedir, tmpdir } from "node:os"
 import path from "node:path"
-import type { AppSettingsSnapshot, KeybindingsSnapshot, LlmProviderSnapshot, UpdateSnapshot } from "../shared/types"
+import type { AppSettingsPatch, AppSettingsSnapshot, KeybindingsSnapshot, LlmProviderSnapshot, UpdateSnapshot } from "../shared/types"
 import { PROTOCOL_VERSION } from "../shared/types"
 import { createEmptyState } from "./events"
 import {
@@ -74,8 +74,6 @@ const DEFAULT_KEYBINDINGS_SNAPSHOT: KeybindingsSnapshot = {
 }
 
 const DEFAULT_APP_SETTINGS_SNAPSHOT: AppSettingsSnapshot = {
-  devbox: false,
-  analyticsEnabled: true,
   browserSettingsMigrated: false,
   setupShown: false,
   setupCompleted: false,
@@ -327,10 +325,6 @@ function createFakeAppSettings(overrides: Partial<CreateWsRouterArgs["appSetting
   let snapshot = DEFAULT_APP_SETTINGS_SNAPSHOT
   return {
     getSnapshot: () => snapshot,
-    write: async (value) => {
-      snapshot = { ...snapshot, analyticsEnabled: value.analyticsEnabled }
-      return snapshot
-    },
     writePatch: async (patch) => {
       snapshot = {
         ...snapshot,
@@ -497,20 +491,20 @@ describe("ws-router", () => {
   })
 
   test("reads and writes app settings via commands", async () => {
-    const writes: Array<{ analyticsEnabled: boolean }> = []
-    let analyticsEnabled = DEFAULT_APP_SETTINGS_SNAPSHOT.analyticsEnabled
+    const writes: AppSettingsPatch[] = []
+    let theme = DEFAULT_APP_SETTINGS_SNAPSHOT.theme
     const router = createTestRouter({
       appSettings: createFakeAppSettings({
         getSnapshot: () => ({
           ...DEFAULT_APP_SETTINGS_SNAPSHOT,
-          analyticsEnabled,
+          theme,
         }),
-        write: async (value) => {
-          writes.push(value)
-          analyticsEnabled = value.analyticsEnabled
+        writePatch: async (patch) => {
+          writes.push(patch)
+          theme = patch.theme ?? theme
           return {
             ...DEFAULT_APP_SETTINGS_SNAPSHOT,
-            analyticsEnabled: value.analyticsEnabled,
+            theme,
           }
         },
       }),
@@ -535,8 +529,8 @@ describe("ws-router", () => {
         type: "command",
         id: "settings-write-1",
         command: {
-          type: "settings.writeAppSettings",
-          analyticsEnabled: false,
+          type: "settings.writeAppSettingsPatch",
+          patch: { theme: "dark" },
         },
       })
     )
@@ -554,11 +548,11 @@ describe("ws-router", () => {
         id: "settings-write-1",
         result: {
           ...DEFAULT_APP_SETTINGS_SNAPSHOT,
-          analyticsEnabled: false,
+          theme: "dark",
         },
       },
     ])
-    expect(writes).toEqual([{ analyticsEnabled: false }])
+    expect(writes).toEqual([{ theme: "dark" }])
   })
 
   test("subscribes to app settings and writes patches through the router", async () => {
@@ -567,14 +561,9 @@ describe("ws-router", () => {
     const router = createTestRouter({
       appSettings: {
         getSnapshot: () => snapshot,
-        write: async (value) => {
-          snapshot = { ...snapshot, analyticsEnabled: value.analyticsEnabled }
-          return snapshot
-        },
         writePatch: async (patch) => {
           snapshot = {
             ...snapshot,
-            analyticsEnabled: patch.analyticsEnabled ?? snapshot.analyticsEnabled,
             browserSettingsMigrated: patch.browserSettingsMigrated ?? snapshot.browserSettingsMigrated,
             theme: patch.theme ?? snapshot.theme,
             chatSoundPreference: patch.chatSoundPreference ?? snapshot.chatSoundPreference,
@@ -665,152 +654,7 @@ describe("ws-router", () => {
     ])
   })
 
-  test("tracks analytics preference transitions in the correct order", async () => {
-    const analyticsEvents: string[] = []
-    let analyticsEnabled = true
-    const router = createTestRouter({
-      appSettings: createFakeAppSettings({
-        getSnapshot: () => ({
-          ...DEFAULT_APP_SETTINGS_SNAPSHOT,
-          analyticsEnabled,
-        }),
-        write: async (value) => {
-          analyticsEnabled = value.analyticsEnabled
-          return {
-            ...DEFAULT_APP_SETTINGS_SNAPSHOT,
-            analyticsEnabled: value.analyticsEnabled,
-          }
-        },
-      }),
-      analytics: {
-        track: (eventName: string) => {
-          analyticsEvents.push(eventName)
-        },
-        trackLaunch: () => {},
-      },
-    })
-    const ws = new FakeWebSocket()
-
-    await router.handleMessage(
-      ws as never,
-      JSON.stringify({
-        v: 1,
-        type: "command",
-        id: "settings-disable-1",
-        command: {
-          type: "settings.writeAppSettings",
-          analyticsEnabled: false,
-        },
-      })
-    )
-
-    await router.handleMessage(
-      ws as never,
-      JSON.stringify({
-        v: 1,
-        type: "command",
-        id: "settings-enable-1",
-        command: {
-          type: "settings.writeAppSettings",
-          analyticsEnabled: true,
-        },
-      })
-    )
-
-    await router.handleMessage(
-      ws as never,
-      JSON.stringify({
-        v: 1,
-        type: "command",
-        id: "settings-enable-2",
-        command: {
-          type: "settings.writeAppSettings",
-          analyticsEnabled: true,
-        },
-      })
-    )
-
-    expect(analyticsEvents).toEqual([
-      "analytics_disabled",
-      "analytics_enabled",
-    ])
-  })
-
-  test("tracks project lifecycle analytics", async () => {
-    const analyticsEvents: string[] = []
-    const state = createEmptyState()
-    const projectPath = await mkdtemp(path.join(tmpdir(), "kanna-router-project-"))
-
-    try {
-      const router = createTestRouter({
-        store: createFakeStore({
-          state,
-          openProject: async (localPath: string, title?: string) => {
-            const project = {
-              id: "project-1",
-              localPath,
-              title: title ?? "Project",
-              createdAt: Date.now(),
-              updatedAt: Date.now(),
-              deletedAt: null,
-            }
-            state.projectsById.set(project.id, project as never)
-            state.projectIdsByPath.set(localPath, project.id)
-            return project
-          },
-          getProject: () => ({
-            id: "project-1",
-            localPath: projectPath,
-          }),
-          listChatsByProject: () => [{ id: "chat-1" }, { id: "chat-2" }],
-          removeProject: async () => {},
-        }),
-        agent: {
-          cancel: async () => {},
-          closeChat: async () => {},
-          getActiveStatuses: () => new Map(),
-          getDrainingChatIds: () => new Set(),
-        } as never,
-        analytics: {
-          track: (eventName: string) => {
-            analyticsEvents.push(eventName)
-          },
-          trackLaunch: () => {},
-        },
-      })
-      const ws = new FakeWebSocket()
-
-      await router.handleMessage(
-        ws as never,
-        JSON.stringify({
-          v: 1,
-          type: "command",
-          id: "project-open-analytics-1",
-          command: { type: "project.open", localPath: projectPath },
-        })
-      )
-
-      await router.handleMessage(
-        ws as never,
-        JSON.stringify({
-          v: 1,
-          type: "command",
-          id: "project-remove-1",
-          command: { type: "project.remove", projectId: "project-1" },
-        })
-      )
-
-      expect(analyticsEvents).toEqual([
-        "project_opened",
-        "project_removed",
-      ])
-    } finally {
-      await rm(projectPath, { recursive: true, force: true })
-    }
-  })
-
-  test("project.create initializes the directory, acks the resolved path, and tracks analytics", async () => {
-    const analyticsEvents: string[] = []
+  test("project.create initializes the directory and acks the resolved path", async () => {
     const state = createEmptyState()
     const parentPath = await mkdtemp(path.join(tmpdir(), "kanna-router-create-"))
     const projectPath = path.join(parentPath, "brand-new")
@@ -833,12 +677,6 @@ describe("ws-router", () => {
             return project
           },
         }),
-        analytics: {
-          track: (eventName: string) => {
-            analyticsEvents.push(eventName)
-          },
-          trackLaunch: () => {},
-        },
       })
       const ws = new FakeWebSocket()
 
@@ -859,7 +697,6 @@ describe("ws-router", () => {
       expect(ack?.result).toEqual({ projectId: "project-created", localPath: projectPath })
       // The directory exists and was git-initialized (it was brand-new).
       expect((await stat(path.join(projectPath, ".git"))).isDirectory()).toBe(true)
-      expect(analyticsEvents).toEqual(["project_opened"])
     } finally {
       await rm(parentPath, { recursive: true, force: true })
     }
