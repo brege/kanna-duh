@@ -84,7 +84,6 @@ export function applyClaudeSdkModels(models: readonly ClaudeSdkModelInfo[]) {
     const staticOption = staticModels.find((option) => option.id === modelId)
     if (!group) return structuredClone(staticOption!)
 
-    const row = group.rows.find((candidate) => candidate.value !== "default") ?? group.rows[0]!
     const reportedEfforts = new Set(group.rows.flatMap((candidate) => candidate.supportedEffortLevels ?? []))
     const efforts = reportedEfforts.size > 0
       ? CLAUDE_REASONING_OPTIONS.filter((option) => reportedEfforts.has(option.id)).map((option) => option.id)
@@ -99,17 +98,19 @@ export function applyClaudeSdkModels(models: readonly ClaudeSdkModelInfo[]) {
       : group.has1m
         ? [...CLAUDE_CONTEXT_WINDOW_OPTIONS]
         : staticOption?.contextWindowOptions
+    const supportsEffort = group.rows.some((candidate) => candidate.supportsEffort === true)
+      || staticOption?.supportsEffort === true
+    const supportsFastMode = group.rows.some((candidate) => candidate.supportsFastMode === true)
+      || staticOption?.supportsFastMode === true
     return {
       id: modelId,
       label: deriveModelLabel(modelId),
-      supportsEffort: row.supportsEffort ?? staticOption?.supportsEffort ?? true,
+      supportsEffort,
       ...(aliases.size > 0 ? { aliases: [...aliases] } : {}),
       ...(efforts ? { efforts: [...efforts] } : {}),
       ...(contextWindowOptions ? { contextWindowOptions: [...contextWindowOptions] } : {}),
       ...(staticOption?.contextWindowTokens ? { contextWindowTokens: staticOption.contextWindowTokens } : {}),
-      ...((group.rows.some((candidate) => candidate.supportsFastMode) || staticOption?.supportsFastMode) !== undefined
-        ? { supportsFastMode: group.rows.some((candidate) => candidate.supportsFastMode) || staticOption?.supportsFastMode }
-        : {}),
+      ...(supportsFastMode ? { supportsFastMode: true } : {}),
     }
   })
 

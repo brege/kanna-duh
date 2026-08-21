@@ -208,7 +208,7 @@ export function useUpdateRestart(params: {
     await runInstallCommand(
       { type: "update.install" },
       "Update failed",
-      "Kanna could not install the update. Try again later."
+      "kanna-duh could not install the update. Try again later."
     )
   }, [runInstallCommand])
 

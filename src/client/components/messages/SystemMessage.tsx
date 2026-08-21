@@ -258,7 +258,7 @@ export function SystemMessage({ message, rawJson, modelChanged, handoff, restore
             <div className="flex flex-col gap-3">
               {restored && (
                 <MetaText>
-                  {providerLabel(restored.provider)}'s saved session for this conversation was no longer available — coding-agent CLIs clean up old session files. Kanna repaired it by starting a fresh session and restoring the conversation from its own saved transcript.
+                  {providerLabel(restored.provider)}'s saved session for this conversation was no longer available — coding-agent CLIs clean up old session files. kanna-duh repaired it by starting a fresh session and restoring the conversation from its own saved transcript.
                 </MetaText>
               )}
               <MetaText>{message.model}</MetaText>

@@ -237,8 +237,7 @@ export async function startKannaServer(options: StartKannaServerOptions = {}) {
     updateManager,
     providerAuth,
   })
-  // Overlay the account's live Cursor model list on the static catalog
-  // (no-op when cursor-agent is missing or logged out); broadcasts on change.
+  // Overlay each account's live model metadata on the static catalog.
   void agent.refreshCursorModelCatalog()
   void agent.refreshClaudeModelCatalog().catch(() => undefined)
   // Seed the pi provider's model picker from saved fave models before the

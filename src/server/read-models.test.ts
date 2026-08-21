@@ -23,6 +23,7 @@ describe("read models", () => {
       }], "Machine")
 
       expect(snapshot.projects[0]?.folderModifiedAt).toBe(modifiedAt.getTime())
+      expect(snapshot.availableProviders.map((provider) => provider.id)).toEqual(["claude", "codex", "cursor", "pi"])
     } finally {
       rmSync(tempRoot, { recursive: true, force: true })
     }

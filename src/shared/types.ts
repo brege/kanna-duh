@@ -719,7 +719,9 @@ export function normalizeProviderModelId(
   if (provider === "cursor") {
     return normalizeCursorModelId(modelId, fallbackModelId ?? getProviderCatalog(provider).defaultModel)
   }
-  const candidate = provider === "claude" ? modelId?.replace(/\[1m\]$/i, "") : modelId
+  const candidate = provider === "claude" && modelId?.toLowerCase().endsWith("[1m]")
+    ? modelId.slice(0, -"[1m]".length)
+    : modelId
   const match = getProviderModelMatch(provider, candidate)
   if (match) return match.id
   if (provider === "claude" && modelId) {
@@ -1075,7 +1077,7 @@ export interface FsListResult {
 }
 
 /** Default for `newProjectsDirectory` — expanded server-side at use time. */
-export const DEFAULT_NEW_PROJECTS_DIRECTORY = "~/Kanna"
+export const DEFAULT_NEW_PROJECTS_DIRECTORY = "~/kanna-duh"
 
 /** One repository from the signed-in user's GitHub account (via the local `gh` CLI). */
 export interface GitHubRepoSummary {

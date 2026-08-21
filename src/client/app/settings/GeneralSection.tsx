@@ -84,7 +84,7 @@ export function GeneralSection({
     : updateSnapshot?.status === "updating"
       ? "Installing update…"
       : updateSnapshot?.status === "restart_pending"
-        ? "Restarting Kanna…"
+        ? "Restarting kanna-duh…"
         : updateSnapshot?.status === "available"
           ? `Update available${updateSnapshot.latestVersion ? `: ${updateSnapshot.latestVersion}` : ""}`
           : updateSnapshot?.status === "up_to_date"

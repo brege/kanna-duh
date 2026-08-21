@@ -1,5 +1,5 @@
 import type { UpdateInstallResult, UpdateSnapshot } from "../shared/types"
-import { PACKAGE_NAME } from "../shared/branding"
+import { APP_NAME, PACKAGE_NAME } from "../shared/branding"
 import { compareVersions, type UpdateInstallAttemptResult } from "./cli-runtime"
 
 const UPDATE_CACHE_TTL_MS = 5 * 60 * 1000
@@ -193,7 +193,7 @@ export class UpdateManager {
         action: "restart",
         errorCode: "install_failed",
         userTitle: "Update failed",
-        userMessage: "Kanna could not determine which version to install.",
+        userMessage: `${APP_NAME} could not determine which version to install.`,
       }
     }
 

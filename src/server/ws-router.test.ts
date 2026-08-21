@@ -129,7 +129,7 @@ const DEFAULT_APP_SETTINGS_SNAPSHOT: AppSettingsSnapshot = {
     },
   },
   newSidebarEnabled: false,
-  newProjectsDirectory: "~/Kanna",
+  newProjectsDirectory: "~/kanna-duh",
   warning: null,
   filePathDisplay: "~/.kanna/data/settings.json",
 }

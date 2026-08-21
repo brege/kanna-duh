@@ -32,7 +32,7 @@ export function SetupCard({ className }: { className?: string }) {
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2.5">
           <Flower className="h-4 w-4 shrink-0 text-logo" />
-          <span className="truncate text-sm font-semibold text-foreground">Set up Kanna</span>
+          <span className="truncate text-sm font-semibold text-foreground">Set up kanna-duh</span>
         </div>
         <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full border border-border px-2.5 py-1 text-xs font-semibold text-foreground transition-colors group-hover:bg-muted">
           Setup

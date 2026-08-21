@@ -1,4 +1,4 @@
-export const APP_NAME = "Kanna"
+export const APP_NAME = "kanna-duh"
 export const CLI_COMMAND = "kanna"
 export const DATA_ROOT_NAME = ".kanna"
 export const DEV_DATA_ROOT_NAME = ".kanna-dev"

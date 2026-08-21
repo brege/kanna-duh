@@ -39,7 +39,7 @@ function expectedSettingsSnapshot(filePath: string, overrides: Partial<AppSettin
     defaultProvider: "last_used",
     providerDefaults: {
       claude: {
-        model: "opus",
+        model: "claude-opus-5",
         modelOptions: {
           reasoningEffort: "high",
           contextWindow: "1m",
@@ -75,7 +75,7 @@ function expectedSettingsSnapshot(filePath: string, overrides: Partial<AppSettin
       },
     },
     newSidebarEnabled: true,
-    newProjectsDirectory: "~/Kanna",
+    newProjectsDirectory: "~/kanna-duh",
     warning: null,
     filePathDisplay: filePath,
     ...overrides,
@@ -100,11 +100,11 @@ describe("readAppSettingsSnapshot", () => {
     expect(snapshot.warning).toContain("invalid JSON")
   })
 
-  test("newProjectsDirectory defaults to ~/Kanna, trims, and warns on invalid values", async () => {
+  test("newProjectsDirectory defaults to ~/kanna-duh, trims, and warns on invalid values", async () => {
     const filePath = await createTempFilePath()
 
     // Missing → default, no warning.
-    expect((await readAppSettingsSnapshot(filePath)).newProjectsDirectory).toBe("~/Kanna")
+    expect((await readAppSettingsSnapshot(filePath)).newProjectsDirectory).toBe("~/kanna-duh")
 
     // Custom value trims.
     await writeFile(filePath, JSON.stringify({ newProjectsDirectory: "  ~/Dev/Projects  " }), "utf8")
@@ -115,13 +115,13 @@ describe("readAppSettingsSnapshot", () => {
     // Wrong type → default + warning.
     await writeFile(filePath, JSON.stringify({ newProjectsDirectory: 42 }), "utf8")
     const invalid = await readAppSettingsSnapshot(filePath)
-    expect(invalid.newProjectsDirectory).toBe("~/Kanna")
+    expect(invalid.newProjectsDirectory).toBe("~/kanna-duh")
     expect(invalid.warning).toContain("newProjectsDirectory")
 
     // Empty string → default + warning.
     await writeFile(filePath, JSON.stringify({ newProjectsDirectory: "  " }), "utf8")
     const empty = await readAppSettingsSnapshot(filePath)
-    expect(empty.newProjectsDirectory).toBe("~/Kanna")
+    expect(empty.newProjectsDirectory).toBe("~/kanna-duh")
     expect(empty.warning).toContain("newProjectsDirectory")
   })
 

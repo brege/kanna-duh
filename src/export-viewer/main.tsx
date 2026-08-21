@@ -59,7 +59,7 @@ function StandaloneTranscriptApp() {
       return
     }
 
-    document.title = `${state.bundle.title} | Kanna`
+    document.title = `${state.bundle.title} | ${APP_NAME}`
     document.documentElement.classList.toggle("dark", state.bundle.theme === "dark")
     document.documentElement.style.colorScheme = state.bundle.theme
 

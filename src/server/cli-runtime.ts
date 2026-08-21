@@ -246,7 +246,7 @@ export async function runCli(argv: string[], deps: CliRuntimeDeps): Promise<CliR
   // (e.g. dev profile) keeps the try-next-port behavior.
   const existing = await (deps.probeExistingInstanceImpl ?? probeExistingInstance)(runOptions.port)
   if (existing) {
-    deps.log(`${LOG_PREFIX} kanna is already running at ${existing.localUrl}`)
+    deps.log(`${LOG_PREFIX} ${APP_NAME} is already running at ${existing.localUrl}`)
     if (runOptions.openBrowser && !suppressOpenBrowser) {
       deps.openUrl(existing.localUrl)
     }
@@ -354,7 +354,7 @@ export function classifyInstallVersionFailure(output: string): UpdateInstallAtte
     ok: false,
     errorCode: "install_failed",
     userTitle: "Update failed",
-    userMessage: "Kanna could not install the update. Try again later.",
+    userMessage: `${APP_NAME} could not install the update. Try again later.`,
   }
 }
 
@@ -401,7 +401,7 @@ export function installPackageVersion(packageName: string, version: string) {
       ok: false,
       errorCode: "command_missing",
       userTitle: "Bun not found",
-      userMessage: "Kanna could not find Bun to install the update.",
+      userMessage: `${APP_NAME} could not find Bun to install the update.`,
     } satisfies UpdateInstallAttemptResult
   }
 

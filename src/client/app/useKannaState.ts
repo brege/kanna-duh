@@ -501,8 +501,8 @@ export function useKannaState(activeChatId: string | null): KannaState {
     ? "starting"
     : null
   const effectiveRuntimeStatus = optimisticRuntimeStatus ?? runtime?.status ?? null
-  // Outside a chat snapshot (new-chat composer, settings) the pi catalog is
-  // derived from the same fave models the server applies, so both always match.
+  // The global snapshot carries runtime model discovery into new chats and
+  // settings; the local fallback covers the initial connection.
   const fallbackProviders = useMemo(
     () => withPiFaveModels(PROVIDERS, llmProvider?.faveModels ?? []),
     [llmProvider?.faveModels]

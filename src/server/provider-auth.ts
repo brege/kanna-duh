@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto"
-import { LOG_PREFIX } from "../shared/branding"
+import { APP_NAME, LOG_PREFIX } from "../shared/branding"
 import {
   AUTH_SERVICE_LABELS,
   AUTH_SERVICE_ORDER,
@@ -438,7 +438,7 @@ export class ProviderAuthManager {
         // flag): its auth state is unreadable, so mark it outdated instead
         // of echoing the raw CLI error — the card requires an update.
         authStatus = "outdated"
-        statusDetail = `Claude Code ${version ?? "(unknown version)"} is too old for Kanna — update it to continue.`
+        statusDetail = `Claude Code ${version ?? "(unknown version)"} is too old for ${APP_NAME} — update it to continue.`
       } else {
         authStatus = result.code === 0 ? "signed_out" : "error"
         statusDetail = result.code === 0 ? null : truncateOutput(result.stderr || result.stdout)
@@ -451,7 +451,7 @@ export class ProviderAuthManager {
         account = match?.[1]?.trim() ?? null
       } else if (isUnknownCliSyntax(`${result.stderr}\n${result.stdout}`)) {
         authStatus = "outdated"
-        statusDetail = `Codex ${version ?? "(unknown version)"} is too old for Kanna — update it to continue.`
+        statusDetail = `Codex ${version ?? "(unknown version)"} is too old for ${APP_NAME} — update it to continue.`
       } else {
         authStatus = "signed_out"
       }
@@ -614,7 +614,7 @@ export class ProviderAuthManager {
       throw new Error(`${current.label} is not installed.`)
     }
     if (current.authStatus === "outdated") {
-      throw new Error(`${current.label} is too old for Kanna — update it first.`)
+      throw new Error(`${current.label} is too old for ${APP_NAME} — update it first.`)
     }
 
     const flow: LoginFlowRuntime = {

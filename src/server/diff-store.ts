@@ -26,6 +26,7 @@ import type {
   SelectedBranch,
   UpstreamStatus,
 } from "../shared/types"
+import { APP_NAME } from "../shared/branding"
 import { generateCommitMessageDetailed } from "./generate-commit-message"
 import { getGhAuthInfo } from "./github"
 import { CommitChecksStore } from "./github-checks"
@@ -1564,7 +1565,7 @@ export class DiffStore {
       return {
         ok: false,
         title: "GitHub CLI not installed",
-        message: "Install GitHub CLI (`gh`) to publish from Kanna.",
+        message: `Install GitHub CLI (\`gh\`) to publish from ${APP_NAME}.`,
         snapshotChanged: false,
       }
     }

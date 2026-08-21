@@ -622,7 +622,7 @@ function KannaSidebarImpl({
                 className="hidden md:inline-flex rounded-full !h-auto mr-1 py-0.5 px-2 bg-logo/20 hover:bg-logo text-logo border-logo/20 hover:text-foreground hover:border-logo/20 text-[11px] font-bold tracking-wider"
                 onClick={onOpenChangelog}
                 disabled={isUpdating}
-                title={updateSnapshot?.latestVersion ? `Update to ${updateSnapshot.latestVersion}` : "Update Kanna"}
+                title={updateSnapshot?.latestVersion ? `Update to ${updateSnapshot.latestVersion}` : "Update kanna-duh"}
               >
                 {isUpdating ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : null}
                 UPDATE

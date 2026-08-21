@@ -191,7 +191,7 @@ export function SetupWizard() {
             <>
               <StepHeading
                 title="Connect GitHub"
-                description="Clone repos, publish projects, and open pull requests without leaving Kanna."
+                description="Clone repos, publish projects, and open pull requests without leaving kanna-duh."
               />
               <div className="mt-8 space-y-3">
                 {services.gh ? <AuthCard service={services.gh} socket={socket} /> : null}
@@ -208,7 +208,7 @@ export function SetupWizard() {
             <>
               <StepHeading
                 title="Connect your coding agents"
-                description="Kanna drives the agents you already use. Connect at least one — you can add the rest anytime."
+                description="kanna-duh drives the agents you already use. Connect at least one — you can add the rest anytime."
               />
               <div className="mt-8 space-y-3">
                 {services.agents.map((service) => (
@@ -250,7 +250,7 @@ export function SetupWizard() {
                 </div>
                 <StepHeading
                   title="You're all set"
-                  description="Kanna is ready. Manage providers anytime in Settings."
+                  description="kanna-duh is ready. Manage providers anytime in Settings."
                 />
               </div>
               <div className="mt-8 space-y-2">

@@ -86,7 +86,7 @@ export function OpenRouterCallbackPage() {
               <>
                 <p className="text-sm text-muted-foreground">Your API key was saved.</p>
                 <Button variant="outline" size="sm" onClick={() => navigate("/settings/providers")}>
-                  Back to Kanna
+                  Back to kanna-duh
                 </Button>
               </>
             ) : (

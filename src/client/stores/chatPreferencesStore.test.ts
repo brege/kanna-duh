@@ -18,7 +18,7 @@ describe("migrateChatPreferencesState", () => {
       providerDefaults: {
         // No autoPlan key at all — exactly what an older Kanna wrote.
         claude: {
-          model: "opus",
+          model: "claude-opus-5",
           modelOptions: { reasoningEffort: "high", contextWindow: "1m", fastMode: false },
           planMode: false,
         },
@@ -46,8 +46,7 @@ describe("migrateChatPreferencesState", () => {
     })
 
     expect(migrated.providerDefaults.claude).toEqual({
-      // The version-pinned id folds into the alias while keeping max effort.
-      model: "opus",
+      model: "claude-opus-4-8",
       modelOptions: { reasoningEffort: "max", contextWindow: "1m", fastMode: false },
       planMode: false,
       autoPlan: false,
@@ -59,7 +58,7 @@ describe("migrateChatPreferencesState", () => {
       defaultProvider: "last_used",
       providerDefaults: {
         claude: {
-          model: "opus",
+          model: "claude-opus-5",
           modelOptions: { reasoningEffort: "low", contextWindow: "1m", fastMode: false },
           planMode: true,
           autoPlan: false,
@@ -84,7 +83,7 @@ describe("migrateChatPreferencesState", () => {
       defaultProvider: "last_used",
       providerDefaults: {
         claude: {
-          model: "opus",
+          model: "claude-opus-5",
           modelOptions: { reasoningEffort: "low", contextWindow: "1m", fastMode: false },
           planMode: true,
           autoPlan: false,
@@ -111,8 +110,8 @@ describe("migrateChatPreferencesState", () => {
       chatStates: {},
       legacyComposerState: {
         provider: "claude",
-        model: "sonnet",
-        modelOptions: { reasoningEffort: "high", contextWindow: "1m", fastMode: false },
+        model: "claude-sonnet-5",
+        modelOptions: { reasoningEffort: "max", contextWindow: "1m", fastMode: false },
         planMode: false,
         autoPlan: false,
       },
@@ -144,10 +143,10 @@ describe("migrateChatPreferencesState", () => {
       },
     })
 
-    expect(migrated.providerDefaults.claude.modelOptions).toEqual({ reasoningEffort: "low", contextWindow: "1m", fastMode: false })
+    expect(migrated.providerDefaults.claude.modelOptions).toEqual({ reasoningEffort: "high", contextWindow: "1m", fastMode: false })
     expect(migrated.chatStates.chatA).toEqual({
       provider: "claude",
-      model: "haiku",
+      model: "claude-haiku-4-5-20251001",
       modelOptions: { reasoningEffort: "high", contextWindow: "1m", fastMode: false },
       planMode: false,
       autoPlan: false,
@@ -368,7 +367,7 @@ describe("chat preference store", () => {
 
     expect(store.getComposerState("chat-a")).toEqual({
       provider: "claude",
-      model: "sonnet",
+      model: "claude-sonnet-5",
       modelOptions: { reasoningEffort: "low", contextWindow: "1m", fastMode: false },
       planMode: true,
       autoPlan: false,
@@ -398,7 +397,7 @@ describe("chat preference store", () => {
     // at usage time, and switching back to Opus resumes the 1m preference.
     expect(store.getComposerState("chat-a")).toEqual({
       provider: "claude",
-      model: "haiku",
+      model: "claude-haiku-4-5-20251001",
       modelOptions: { reasoningEffort: "high", contextWindow: "1m", fastMode: false },
       planMode: false,
       autoPlan: false,
@@ -507,7 +506,7 @@ describe("chat preference store", () => {
 
     expect(useChatPreferencesStore.getState().getComposerState("chat-a")).toEqual({
       provider: "claude",
-      model: "opus",
+      model: "claude-opus-5",
       modelOptions: { reasoningEffort: "max", contextWindow: "1m", fastMode: false },
       planMode: true,
       autoPlan: false,
@@ -530,7 +529,7 @@ describe("chat preference store", () => {
 
     expect(useChatPreferencesStore.getState().getComposerState(NEW_CHAT_COMPOSER_ID)).toEqual({
       provider: "claude",
-      model: "opus",
+      model: "claude-opus-5",
       modelOptions: { reasoningEffort: "max", contextWindow: "1m", fastMode: false },
       planMode: true,
       autoPlan: false,
@@ -553,7 +552,7 @@ describe("chat preference store", () => {
 
     expect(useChatPreferencesStore.getState().getComposerState("chat-a")).toEqual({
       provider: "claude",
-      model: "opus",
+      model: "claude-opus-5",
       modelOptions: { reasoningEffort: "max", contextWindow: "1m", fastMode: false },
       planMode: true,
       autoPlan: false,
