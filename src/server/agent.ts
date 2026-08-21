@@ -909,7 +909,7 @@ export class AgentCoordinator {
     this.onStateChange(chatId, options)
   }
 
-  private refreshClaudeModelCatalog(session: ClaudeSessionHandle) {
+  private refreshClaudeModelCatalogFromSession(session: ClaudeSessionHandle) {
     if (!session.supportedModels) return
     void session.supportedModels()
       .then((models) => {
@@ -921,6 +921,27 @@ export class AgentCoordinator {
         const message = error instanceof Error ? error.message : String(error)
         this.reportBackgroundError?.(`[claude-models] failed to refresh Claude model catalog: ${message}`)
       })
+  }
+
+  async refreshClaudeModelCatalog() {
+    const promptQueue = new AsyncQueue<SDKUserMessage>()
+    const session = query({
+      prompt: promptQueue,
+      options: {
+        cwd: homedir(),
+        settingSources: ["user", "project", "local"],
+        tools: [],
+      },
+    })
+    try {
+      const models = await session.supportedModels()
+      if (applyClaudeSdkModels(models)) {
+        this.emitStateChange(undefined, { immediate: true })
+      }
+    } finally {
+      promptQueue.finish()
+      session.close()
+    }
   }
 
   /**
@@ -1531,7 +1552,7 @@ export class AgentCoordinator {
         onToolRequest: args.onToolRequest,
         onRateLimitEvent: (info) => this.onClaudeRateLimit?.(info),
       })
-      this.refreshClaudeModelCatalog(started)
+      this.refreshClaudeModelCatalogFromSession(started)
 
       session = {
         id: crypto.randomUUID(),

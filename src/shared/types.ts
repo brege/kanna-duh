@@ -178,7 +178,7 @@ export interface ProviderModelOption {
   label: string
   supportsEffort: boolean
   aliases?: readonly string[]
-  supportedReasoningEfforts?: readonly CodexReasoningEffortOption[]
+  efforts?: readonly string[]
   defaultReasoningEffort?: CodexReasoningEffort
   supportsFastMode?: boolean
   contextWindowOptions?: readonly ProviderContextWindowOption[]
@@ -189,7 +189,6 @@ export interface ProviderModelOption {
    * omitted (no picker).
    */
   contextWindowTokens?: number
-  supportsMaxReasoningEffort?: boolean
 }
 
 export interface ProviderEffortOption {
@@ -213,6 +212,7 @@ export const CLAUDE_REASONING_OPTIONS = [
   { id: "low", label: "Low" },
   { id: "medium", label: "Medium" },
   { id: "high", label: "High" },
+  { id: "xhigh", label: "Extra High" },
   { id: "max", label: "Max" },
 ] as const satisfies readonly ProviderEffortOption[]
 
@@ -371,13 +371,18 @@ export function isCodexReasoningEffort(value: unknown): value is CodexReasoningE
   return value === "minimal" || CODEX_REASONING_OPTIONS.some((option) => option.id === value)
 }
 
-const LEGACY_CODEX_REASONING_OPTIONS = [
+const ALL_CODEX_REASONING_OPTIONS = [
   { id: "minimal", label: "Minimal" },
-  ...CODEX_REASONING_OPTIONS.filter((option) => option.id !== "max" && option.id !== "ultra"),
+  ...CODEX_REASONING_OPTIONS,
 ] as const satisfies readonly ProviderEffortOption[]
+const LEGACY_CODEX_REASONING_OPTIONS = ALL_CODEX_REASONING_OPTIONS.filter(
+  (option) => option.id !== "max" && option.id !== "ultra"
+)
 
 const GPT_5_6_REASONING_OPTIONS = [...CODEX_REASONING_OPTIONS]
 const GPT_5_6_LUNA_REASONING_OPTIONS = CODEX_REASONING_OPTIONS.filter((option) => option.id !== "ultra")
+const CLAUDE_ADAPTIVE_EFFORTS = CLAUDE_REASONING_OPTIONS.map((option) => option.id)
+const CLAUDE_4_6_EFFORTS = CLAUDE_ADAPTIVE_EFFORTS.filter((effort) => effort !== "xhigh")
 
 export const CLAUDE_CONTEXT_WINDOW_OPTIONS = [
   { id: "1m", label: "1M" },
@@ -510,47 +515,80 @@ export const PROVIDERS: ProviderCatalogEntry[] = [
   {
     id: "claude",
     label: "Claude Code",
-    defaultModel: "sonnet",
+    defaultModel: "claude-sonnet-5",
     defaultEffort: "high",
     supportsPlanMode: true,
     supportsAutoPlanMode: true,
-    // Claude ids are family aliases ("opus"), never version-pinned ids
-    // ("claude-opus-4-8"): the harness resolves each alias to its latest
-    // release, so new model versions apply without a Kanna update. This static
-    // list is only a cold-start fallback — the real picker is rebuilt at
-    // runtime from the SDK's supportedModels (applyClaudeSdkModels), labeled
-    // from each row's resolved wire id. Persisted version-pinned ids from
-    // older Kanna versions fold into their family alias in
-    // normalizeProviderModelId.
     models: [
       {
-        id: "fable",
-        label: deriveModelLabel("fable"),
+        id: "claude-fable-5",
+        label: deriveModelLabel("claude-fable-5"),
+        aliases: ["fable", "claude-fable-5[1m]"],
         supportsEffort: true,
-        // Fable runs a fixed 1M window (no 200k/1m selector). The SDK reports a
-        // 2M window for it, so pin the meter to the real 1M ceiling here.
+        efforts: CLAUDE_ADAPTIVE_EFFORTS,
         contextWindowTokens: 1_000_000,
       },
       {
-        id: "opus",
-        label: deriveModelLabel("opus"),
+        id: "claude-opus-5",
+        label: deriveModelLabel("claude-opus-5"),
+        aliases: ["opus", "opus[1m]"],
         supportsEffort: true,
+        efforts: CLAUDE_ADAPTIVE_EFFORTS,
         contextWindowOptions: [...CLAUDE_CONTEXT_WINDOW_OPTIONS],
-        supportsMaxReasoningEffort: true,
-        // Fast mode is available on the Opus family. The SDK confirms this at
-        // runtime via supportedModels() (see applyClaudeSdkModels).
         supportsFastMode: true,
       },
       {
-        id: "sonnet",
-        label: deriveModelLabel("sonnet"),
+        id: "claude-sonnet-5",
+        label: deriveModelLabel("claude-sonnet-5"),
+        aliases: ["sonnet"],
         supportsEffort: true,
+        efforts: CLAUDE_ADAPTIVE_EFFORTS,
+        contextWindowTokens: 1_000_000,
+      },
+      {
+        id: "claude-opus-4-8",
+        label: deriveModelLabel("claude-opus-4-8"),
+        supportsEffort: true,
+        efforts: CLAUDE_ADAPTIVE_EFFORTS,
+        contextWindowOptions: [...CLAUDE_CONTEXT_WINDOW_OPTIONS],
+        supportsFastMode: true,
+      },
+      {
+        id: "claude-opus-4-7",
+        label: deriveModelLabel("claude-opus-4-7"),
+        supportsEffort: true,
+        efforts: CLAUDE_ADAPTIVE_EFFORTS,
         contextWindowOptions: [...CLAUDE_CONTEXT_WINDOW_OPTIONS],
       },
       {
-        id: "haiku",
-        label: deriveModelLabel("haiku"),
+        id: "claude-opus-4-6",
+        label: deriveModelLabel("claude-opus-4-6"),
         supportsEffort: true,
+        efforts: CLAUDE_4_6_EFFORTS,
+        contextWindowOptions: [...CLAUDE_CONTEXT_WINDOW_OPTIONS],
+      },
+      {
+        id: "claude-sonnet-4-6",
+        label: deriveModelLabel("claude-sonnet-4-6"),
+        supportsEffort: true,
+        efforts: CLAUDE_4_6_EFFORTS,
+        contextWindowOptions: [...CLAUDE_CONTEXT_WINDOW_OPTIONS],
+      },
+      {
+        id: "claude-opus-4-5-20251101",
+        label: deriveModelLabel("claude-opus-4-5-20251101"),
+        supportsEffort: false,
+      },
+      {
+        id: "claude-sonnet-4-5-20250929",
+        label: deriveModelLabel("claude-sonnet-4-5-20250929"),
+        supportsEffort: false,
+      },
+      {
+        id: "claude-haiku-4-5-20251001",
+        label: deriveModelLabel("claude-haiku-4-5-20251001"),
+        aliases: ["haiku"],
+        supportsEffort: false,
       },
     ],
     efforts: [...CLAUDE_REASONING_OPTIONS],
@@ -568,7 +606,7 @@ export const PROVIDERS: ProviderCatalogEntry[] = [
         label: "GPT-5.6 Sol",
         supportsEffort: true,
         aliases: ["gpt-5.6"],
-        supportedReasoningEfforts: GPT_5_6_REASONING_OPTIONS,
+        efforts: GPT_5_6_REASONING_OPTIONS.map((option) => option.id),
         defaultReasoningEffort: "medium",
         supportsFastMode: true,
       },
@@ -576,7 +614,7 @@ export const PROVIDERS: ProviderCatalogEntry[] = [
         id: "gpt-5.6-terra",
         label: "GPT-5.6 Terra",
         supportsEffort: true,
-        supportedReasoningEfforts: GPT_5_6_REASONING_OPTIONS,
+        efforts: GPT_5_6_REASONING_OPTIONS.map((option) => option.id),
         defaultReasoningEffort: "medium",
         supportsFastMode: true,
       },
@@ -584,7 +622,7 @@ export const PROVIDERS: ProviderCatalogEntry[] = [
         id: "gpt-5.6-luna",
         label: "GPT-5.6 Luna",
         supportsEffort: true,
-        supportedReasoningEfforts: GPT_5_6_LUNA_REASONING_OPTIONS,
+        efforts: GPT_5_6_LUNA_REASONING_OPTIONS.map((option) => option.id),
         defaultReasoningEffort: "medium",
         supportsFastMode: true,
       },
@@ -592,7 +630,7 @@ export const PROVIDERS: ProviderCatalogEntry[] = [
         id: "gpt-5.5",
         label: "GPT-5.5",
         supportsEffort: true,
-        supportedReasoningEfforts: LEGACY_CODEX_REASONING_OPTIONS,
+        efforts: LEGACY_CODEX_REASONING_OPTIONS.map((option) => option.id),
         defaultReasoningEffort: "medium",
         supportsFastMode: true,
       },
@@ -600,7 +638,7 @@ export const PROVIDERS: ProviderCatalogEntry[] = [
         id: "gpt-5.4",
         label: "GPT-5.4",
         supportsEffort: true,
-        supportedReasoningEfforts: LEGACY_CODEX_REASONING_OPTIONS,
+        efforts: LEGACY_CODEX_REASONING_OPTIONS.map((option) => option.id),
         defaultReasoningEffort: "medium",
         supportsFastMode: true,
       },
@@ -609,7 +647,7 @@ export const PROVIDERS: ProviderCatalogEntry[] = [
         label: "GPT-5.3 Codex",
         supportsEffort: true,
         aliases: ["gpt-5-codex"],
-        supportedReasoningEfforts: LEGACY_CODEX_REASONING_OPTIONS,
+        efforts: LEGACY_CODEX_REASONING_OPTIONS.map((option) => option.id),
         defaultReasoningEffort: "high",
         // Fast mode supports GPT-5.6/5.5/5.4 only (docs: /codex/speed).
         supportsFastMode: false,
@@ -618,7 +656,7 @@ export const PROVIDERS: ProviderCatalogEntry[] = [
         id: "gpt-5.3-codex-spark",
         label: "GPT-5.3 Codex Spark",
         supportsEffort: true,
-        supportedReasoningEfforts: LEGACY_CODEX_REASONING_OPTIONS,
+        efforts: LEGACY_CODEX_REASONING_OPTIONS.map((option) => option.id),
         defaultReasoningEffort: "high",
         supportsFastMode: false,
       },
@@ -670,17 +708,6 @@ function getProviderModelMatch(provider: AgentProvider, modelId?: string): Provi
   )
 }
 
-/**
- * The family word of a Claude-style model id: "claude-opus-4-8[1m]" → "opus",
- * "sonnet" → "sonnet". Used to fold version-pinned ids into the alias-keyed
- * catalog (migration of persisted ids) and to match SDK model rows to catalog
- * entries (server provider-catalog).
- */
-export function modelIdFamily(modelId: string): string {
-  const match = modelId.match(/^(?:claude-)?([a-z]+)(?:[-[]|$)/i)
-  return match?.[1]?.toLowerCase() ?? modelId.toLowerCase()
-}
-
 export function normalizeProviderModelId(
   provider: AgentProvider,
   modelId?: string,
@@ -692,24 +719,17 @@ export function normalizeProviderModelId(
   if (provider === "cursor") {
     return normalizeCursorModelId(modelId, fallbackModelId ?? getProviderCatalog(provider).defaultModel)
   }
-  const match = getProviderModelMatch(provider, modelId)
+  const candidate = provider === "claude" ? modelId?.replace(/\[1m\]$/i, "") : modelId
+  const match = getProviderModelMatch(provider, candidate)
   if (match) return match.id
   if (provider === "claude" && modelId) {
-    // Claude catalog ids are family aliases; persisted version-pinned ids from
-    // older Kanna versions ("claude-opus-4-8", "claude-haiku-4-5-20251001")
-    // migrate here by folding into their family's alias entry.
-    const familyMatch = getProviderModelMatch(provider, modelIdFamily(modelId))
-    if (familyMatch) return familyMatch.id
-    // The static catalog is only a cold-start picker — the real list comes
-    // from the harness at runtime (supportedModels → applyClaudeSdkModels),
-    // so like cursor/pi, unknown ids pass through for it to validate.
-    const trimmed = modelId.trim()
+    const trimmed = candidate?.trim()
     if (trimmed) return trimmed
   }
   return fallbackModelId ?? getProviderCatalog(provider).defaultModel
 }
 
-export function normalizeClaudeModelId(modelId?: string, fallbackModelId = "opus"): string {
+export function normalizeClaudeModelId(modelId?: string, fallbackModelId = "claude-opus-5"): string {
   return normalizeProviderModelId("claude", modelId, fallbackModelId)
 }
 
@@ -743,7 +763,9 @@ export function getCodexModelOption(modelId: string): ProviderModelOption | unde
 }
 
 export function getCodexReasoningOptions(modelId: string): readonly CodexReasoningEffortOption[] {
-  return getCodexModelOption(modelId)?.supportedReasoningEfforts ?? CODEX_REASONING_OPTIONS
+  const efforts = getCodexModelOption(modelId)?.efforts
+  if (!efforts) return CODEX_REASONING_OPTIONS
+  return ALL_CODEX_REASONING_OPTIONS.filter((option) => efforts.includes(option.id)) as CodexReasoningEffortOption[]
 }
 
 export function normalizeCodexReasoningEffort(
@@ -752,7 +774,7 @@ export function normalizeCodexReasoningEffort(
 ): CodexReasoningEffort {
   const normalizedModel = normalizeCodexModelId(modelId)
   const model = getCodexModelOption(normalizedModel)
-  const supported = model?.supportedReasoningEfforts ?? CODEX_REASONING_OPTIONS
+  const supported = getCodexReasoningOptions(normalizedModel)
 
   if (effort === "minimal" && normalizedModel.startsWith("gpt-5.6-")) {
     return "low"
@@ -767,8 +789,26 @@ export function normalizeCodexReasoningEffort(
   return model?.defaultReasoningEffort ?? DEFAULT_CODEX_MODEL_OPTIONS.reasoningEffort
 }
 
-export function supportsClaudeMaxReasoningEffort(modelId: string): boolean {
-  return Boolean(getClaudeModelOption(modelId)?.supportsMaxReasoningEffort)
+export function getClaudeReasoningOptions(modelId: string): readonly (typeof CLAUDE_REASONING_OPTIONS)[number][] {
+  const model = getClaudeModelOption(modelId)
+  if (model?.supportsEffort === false) return []
+  if (!model?.efforts) return CLAUDE_REASONING_OPTIONS
+  return CLAUDE_REASONING_OPTIONS.filter((option) => model.efforts?.includes(option.id))
+}
+
+export function normalizeClaudeReasoningEffort(modelId: string, effort?: unknown): ClaudeReasoningEffort {
+  const supported = getClaudeReasoningOptions(modelId)
+  if (supported.length === 0) return DEFAULT_CLAUDE_MODEL_OPTIONS.reasoningEffort
+  if (isClaudeReasoningEffort(effort)) {
+    const requestedIndex = CLAUDE_REASONING_OPTIONS.findIndex((option) => option.id === effort)
+    for (let index = requestedIndex; index >= 0; index -= 1) {
+      const candidate = CLAUDE_REASONING_OPTIONS[index]!
+      if (supported.some((option) => option.id === candidate.id)) return candidate.id
+    }
+  }
+  return supported.some((option) => option.id === DEFAULT_CLAUDE_MODEL_OPTIONS.reasoningEffort)
+    ? DEFAULT_CLAUDE_MODEL_OPTIONS.reasoningEffort
+    : supported[0]!.id
 }
 
 export function supportsProviderFastMode(provider: AgentProvider, modelId: string): boolean {
@@ -1006,6 +1046,7 @@ export interface LocalProjectsSnapshot {
     platform: NodeJS.Platform
   }
   projects: LocalProjectSummary[]
+  availableProviders: ProviderCatalogEntry[]
 }
 
 export interface FsDirEntry {

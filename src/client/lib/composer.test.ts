@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { PROVIDERS, supportsClaudeMaxReasoningEffort } from "../../shared/types"
+import { PROVIDERS } from "../../shared/types"
 import { createDefaultProviderDefaults, type ComposerState } from "../stores/chatPreferencesStore"
 import {
   applyModelToComposerState,
@@ -168,9 +168,14 @@ describe("deriveComposerOptionControls", () => {
     expect(controls.mode).not.toBeNull()
     expect(controls.contextWindow?.options.map((option) => option.id)).toEqual(["1m", "200k"])
     expect(controls.fastMode !== null).toBe(Boolean(modelWithWindow.supportsFastMode))
-    // "Max" reasoning is disabled unless the model supports it.
-    const max = controls.reasoning?.options.find((option) => option.id === "max")
-    expect(max?.disabled).toBe(!supportsClaudeMaxReasoningEffort(modelWithWindow.id))
+    expect(controls.reasoning?.options.map((option) => option.id)).toEqual(modelWithWindow.efforts)
+  })
+
+  test("claude omits unsupported efforts instead of disabling a global option", () => {
+    const opus46 = claudeConfig.models.find((model) => model.id === "claude-opus-4-6")!
+    const controls = deriveComposerOptionControls(claudeState({ model: opus46.id }), claudeConfig)
+    expect(controls.reasoning?.options.map((option) => option.id)).toEqual(["low", "medium", "high", "max"])
+    expect(controls.reasoning?.options.some((option) => option.disabled)).toBe(false)
   })
 
   test("cursor has no reasoning selector", () => {

@@ -8,12 +8,12 @@ import {
   normalizeClaudeContextWindow,
   normalizeClaudeFastMode,
   normalizeClaudeModelId,
+  normalizeClaudeReasoningEffort,
   normalizeCodexModelId,
   normalizeCodexReasoningEffort,
   normalizeCursorModelId,
   normalizePiModelId,
   normalizePiReasoningEffort,
-  supportsClaudeMaxReasoningEffort,
   type AgentProvider,
   type AppSettingsPatch,
   type ChatProviderPreferences,
@@ -59,7 +59,7 @@ function modelIdFromInput(value?: ProviderPreferenceInput): string | undefined {
 
 export function normalizeClaudePreference(value?: ProviderPreferenceInput): ProviderPreference<ClaudeModelOptions> {
   const reasoningEffort = value?.modelOptions?.reasoningEffort
-  const normalizedEffort = isClaudeReasoningEffort(reasoningEffort)
+  const requestedEffort = isClaudeReasoningEffort(reasoningEffort)
     ? reasoningEffort
     : isClaudeReasoningEffort(value?.effort)
       ? value.effort
@@ -69,7 +69,7 @@ export function normalizeClaudePreference(value?: ProviderPreferenceInput): Prov
   return {
     model,
     modelOptions: {
-      reasoningEffort: !supportsClaudeMaxReasoningEffort(model) && normalizedEffort === "max" ? "high" : normalizedEffort,
+      reasoningEffort: normalizeClaudeReasoningEffort(model, requestedEffort),
       contextWindow: normalizeClaudeContextWindow(model, value?.modelOptions?.contextWindow),
       fastMode: normalizeClaudeFastMode(model, value?.modelOptions?.fastMode),
     },

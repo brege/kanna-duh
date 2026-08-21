@@ -13,7 +13,7 @@ import type {
 } from "../shared/types"
 import {
   CLAUDE_CONTEXT_WINDOW_OPTIONS,
-  DEFAULT_CLAUDE_MODEL_OPTIONS,
+  CLAUDE_REASONING_OPTIONS,
   DEFAULT_CURSOR_MODEL_OPTIONS,
   PROVIDERS,
   deriveModelLabel,
@@ -23,10 +23,9 @@ import {
   normalizeCodexReasoningEffort,
   normalizePiReasoningEffort,
   normalizeProviderModelId,
-  isClaudeReasoningEffort,
   isCodexReasoningEffort,
   isPiReasoningEffort,
-  modelIdFamily,
+  normalizeClaudeReasoningEffort,
   supportsProviderFastMode,
 } from "../shared/types"
 
@@ -52,18 +51,11 @@ export function resetServerProvidersForTests() {
   SERVER_PROVIDERS.splice(0, SERVER_PROVIDERS.length, ...createServerProviders())
 }
 
-/**
- * Rebuild the Claude picker from the SDK's supportedModels() list — the Claude
- * analog of applyCursorModels. Rows group by the family of the model they
- * resolve to, so role rows ("default" → claude-sonnet-5) and "[1m]" window
- * variants fold into their family's entry instead of appearing as their own.
- * One entry per family, keyed by the family alias (what Kanna stores and
- * spawns with) and labeled from the resolved wire id ("Sonnet 5") — the SDK's
- * display names ("Default (recommended)", versionless "Opus") are ignored.
- * Static catalog entries seed per-family metadata the SDK doesn't report
- * (context window options, max-effort support, fable's fixed 1M window).
- * Returns true when the catalog changed (callers should broadcast).
- */
+function withoutContextMarker(modelId: string): string {
+  return modelId.toLowerCase().endsWith("[1m]") ? modelId.slice(0, -"[1m]".length) : modelId
+}
+
+/** Merge the SDK's account-specific model metadata into the exact static ids. */
 export function applyClaudeSdkModels(models: readonly ClaudeSdkModelInfo[]) {
   const claudeIndex = SERVER_PROVIDERS.findIndex((provider) => provider.id === "claude")
   const claudeProvider = SERVER_PROVIDERS[claudeIndex]
@@ -71,49 +63,62 @@ export function applyClaudeSdkModels(models: readonly ClaudeSdkModelInfo[]) {
 
   const staticModels = PROVIDERS.find((provider) => provider.id === "claude")?.models ?? []
 
-  const familyGroups = new Map<string, { rows: ClaudeSdkModelInfo[]; has1m: boolean }>()
+  const modelGroups = new Map<string, { rows: ClaudeSdkModelInfo[]; has1m: boolean }>()
   for (const row of models) {
     const wireId = row.resolvedModel ?? row.value
-    const family = modelIdFamily(wireId)
-    const group = familyGroups.get(family) ?? { rows: [], has1m: false }
+    const modelId = withoutContextMarker(wireId)
+    const group = modelGroups.get(modelId) ?? { rows: [], has1m: false }
     group.rows.push(row)
     if (row.value.includes("[1m]") || wireId.includes("[1m]")) group.has1m = true
-    familyGroups.set(family, group)
+    modelGroups.set(modelId, group)
   }
-  if (familyGroups.size === 0) return false
+  if (modelGroups.size === 0) return false
 
-  // Known families keep the static catalog's order; new ones append in SDK order.
-  const orderedFamilies = [
-    ...staticModels.map((option) => option.id).filter((id) => familyGroups.has(id)),
-    ...[...familyGroups.keys()].filter((family) => !staticModels.some((option) => option.id === family)),
+  const orderedModelIds = [
+    ...staticModels.map((option) => option.id),
+    ...[...modelGroups.keys()].filter((modelId) => !staticModels.some((option) => option.id === modelId)),
   ]
 
-  const nextModels: ProviderModelOption[] = orderedFamilies.map((family) => {
-    const group = familyGroups.get(family)!
-    // Prefer the row named after the family over role rows ("default").
-    const row = group.rows.find((candidate) => modelIdFamily(candidate.value) === family) ?? group.rows[0]!
-    const staticOption = staticModels.find((option) => option.id === family)
-    const contextWindowOptions = group.has1m
-      ? [...CLAUDE_CONTEXT_WINDOW_OPTIONS]
-      : staticOption?.contextWindowOptions
+  const nextModels: ProviderModelOption[] = orderedModelIds.map((modelId) => {
+    const group = modelGroups.get(modelId)
+    const staticOption = staticModels.find((option) => option.id === modelId)
+    if (!group) return structuredClone(staticOption!)
+
+    const row = group.rows.find((candidate) => candidate.value !== "default") ?? group.rows[0]!
+    const reportedEfforts = new Set(group.rows.flatMap((candidate) => candidate.supportedEffortLevels ?? []))
+    const efforts = reportedEfforts.size > 0
+      ? CLAUDE_REASONING_OPTIONS.filter((option) => reportedEfforts.has(option.id)).map((option) => option.id)
+      : staticOption?.efforts
+    const aliases = new Set(staticOption?.aliases ?? [])
+    for (const candidate of group.rows) {
+      const alias = withoutContextMarker(candidate.value)
+      if (alias !== "default" && alias !== modelId) aliases.add(alias)
+    }
+    const contextWindowOptions = staticOption?.contextWindowTokens
+      ? undefined
+      : group.has1m
+        ? [...CLAUDE_CONTEXT_WINDOW_OPTIONS]
+        : staticOption?.contextWindowOptions
     return {
-      id: family,
-      label: deriveModelLabel(row.resolvedModel ?? row.value),
+      id: modelId,
+      label: deriveModelLabel(modelId),
       supportsEffort: row.supportsEffort ?? staticOption?.supportsEffort ?? true,
+      ...(aliases.size > 0 ? { aliases: [...aliases] } : {}),
+      ...(efforts ? { efforts: [...efforts] } : {}),
       ...(contextWindowOptions ? { contextWindowOptions: [...contextWindowOptions] } : {}),
       ...(staticOption?.contextWindowTokens ? { contextWindowTokens: staticOption.contextWindowTokens } : {}),
-      ...(staticOption?.supportsMaxReasoningEffort ? { supportsMaxReasoningEffort: true } : {}),
-      ...((row.supportsFastMode ?? staticOption?.supportsFastMode) !== undefined
-        ? { supportsFastMode: row.supportsFastMode ?? staticOption?.supportsFastMode }
+      ...((group.rows.some((candidate) => candidate.supportsFastMode) || staticOption?.supportsFastMode) !== undefined
+        ? { supportsFastMode: group.rows.some((candidate) => candidate.supportsFastMode) || staticOption?.supportsFastMode }
         : {}),
     }
   })
 
-  // The "default" role row marks the harness's recommended model.
   const defaultRow = models.find((row) => row.value === "default")
-  const defaultFamily = defaultRow ? modelIdFamily(defaultRow.resolvedModel ?? defaultRow.value) : undefined
-  const defaultModel = defaultFamily && familyGroups.has(defaultFamily) && defaultFamily !== "default"
-    ? defaultFamily
+  const resolvedDefault = defaultRow?.resolvedModel
+    ? withoutContextMarker(defaultRow.resolvedModel)
+    : undefined
+  const defaultModel = resolvedDefault && nextModels.some((model) => model.id === resolvedDefault)
+    ? resolvedDefault
     : claudeProvider.defaultModel
 
   if (
@@ -267,11 +272,7 @@ export function normalizeClaudeModelOptions(
 ): ClaudeModelOptions {
   const reasoningEffort = modelOptions?.claude?.reasoningEffort
   return {
-    reasoningEffort: isClaudeReasoningEffort(reasoningEffort)
-      ? reasoningEffort
-      : isClaudeReasoningEffort(legacyEffort)
-        ? legacyEffort
-        : DEFAULT_CLAUDE_MODEL_OPTIONS.reasoningEffort,
+    reasoningEffort: normalizeClaudeReasoningEffort(model, reasoningEffort ?? legacyEffort),
     contextWindow: normalizeClaudeContextWindow(model, modelOptions?.claude?.contextWindow as ClaudeContextWindow | undefined),
     fastMode: normalizeClaudeFastMode(model, modelOptions?.claude?.fastMode),
   }

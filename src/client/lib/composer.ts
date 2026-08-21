@@ -1,14 +1,14 @@
 import {
   chatModeFromFlags,
   CLAUDE_CONTEXT_WINDOW_OPTIONS,
-  CLAUDE_REASONING_OPTIONS,
+  getClaudeReasoningOptions,
   getCodexReasoningOptions,
   normalizeClaudeContextWindow,
   normalizeClaudeFastMode,
+  normalizeClaudeReasoningEffort,
   normalizeCodexModelId,
   normalizeCodexReasoningEffort,
   PI_REASONING_OPTIONS,
-  supportsClaudeMaxReasoningEffort,
   type AgentProvider,
   type ChatMode,
   type ChatProviderPreferences,
@@ -57,6 +57,7 @@ export function applyModelToComposerState(state: ComposerState, model: string): 
     model,
     modelOptions: {
       ...state.modelOptions,
+      reasoningEffort: normalizeClaudeReasoningEffort(model, state.modelOptions.reasoningEffort),
       contextWindow: normalizeClaudeContextWindow(model, state.modelOptions.contextWindow),
       fastMode: normalizeClaudeFastMode(model, state.modelOptions.fastMode),
     },
@@ -227,19 +228,17 @@ export function deriveComposerOptionControls(
     fastMode?: boolean
   }
 
-  const reasoning = state.provider === "cursor"
+  const reasoningOptions = state.provider === "claude"
+    ? getClaudeReasoningOptions(state.model)
+    : state.provider === "pi"
+      ? PI_REASONING_OPTIONS
+      : state.provider === "codex"
+        ? getCodexReasoningOptions(state.model)
+        : []
+  const reasoning = reasoningOptions.length === 0
     ? null
     : {
-      options: (
-        state.provider === "claude"
-          ? CLAUDE_REASONING_OPTIONS.map((option) => ({
-            ...option,
-            disabled: option.id === "max" && !supportsClaudeMaxReasoningEffort(state.model),
-          }))
-          : state.provider === "pi"
-            ? [...PI_REASONING_OPTIONS]
-            : [...getCodexReasoningOptions(state.model)]
-      ) as ComposerOptionChoice[],
+      options: reasoningOptions.map((option) => ({ ...option })) as ComposerOptionChoice[],
       selectedId: modelOptions.reasoningEffort,
     }
 

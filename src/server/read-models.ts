@@ -365,6 +365,7 @@ export function deriveLocalProjectsSnapshot(
       platform: process.platform,
     },
     projects: [...projects.values()].sort((a, b) => (b.lastOpenedAt ?? 0) - (a.lastOpenedAt ?? 0)),
+    availableProviders: [...SERVER_PROVIDERS],
   }
 }
 

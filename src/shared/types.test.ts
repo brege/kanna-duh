@@ -3,14 +3,15 @@ import {
   PROVIDERS,
   deriveClaudeModelLabel,
   deriveModelLabel,
+  getClaudeReasoningOptions,
   getCodexReasoningOptions,
   resolveModelLabel,
   normalizeClaudeModelId,
+  normalizeClaudeReasoningEffort,
   normalizeCodexModelId,
   normalizeCursorModelId,
   normalizeCodexReasoningEffort,
   isCodexReasoningEffort,
-  supportsClaudeMaxReasoningEffort,
 } from "./types"
 
 describe("shared model normalization", () => {
@@ -25,26 +26,21 @@ describe("shared model normalization", () => {
   })
 
   test("normalizes Claude aliases via the provider catalog", () => {
-    expect(normalizeClaudeModelId("fable")).toBe("fable")
-    expect(normalizeClaudeModelId("opus")).toBe("opus")
-    expect(normalizeClaudeModelId("sonnet")).toBe("sonnet")
-    expect(normalizeClaudeModelId("haiku")).toBe("haiku")
+    expect(normalizeClaudeModelId("fable")).toBe("claude-fable-5")
+    expect(normalizeClaudeModelId("opus")).toBe("claude-opus-5")
+    expect(normalizeClaudeModelId("sonnet")).toBe("claude-sonnet-5")
+    expect(normalizeClaudeModelId("haiku")).toBe("claude-haiku-4-5-20251001")
   })
 
-  test("migrates persisted version-pinned Claude ids into their family alias", () => {
-    // Settings/chats written before the alias-keyed catalog stored ids like
-    // "claude-opus-4-8"; they fold into the family alias on normalization.
-    expect(normalizeClaudeModelId("claude-opus-4-8")).toBe("opus")
-    expect(normalizeClaudeModelId("claude-opus-4-8[1m]")).toBe("opus")
-    expect(normalizeClaudeModelId("claude-sonnet-4-6")).toBe("sonnet")
-    expect(normalizeClaudeModelId("claude-haiku-4-5-20251001")).toBe("haiku")
-    expect(normalizeClaudeModelId("claude-fable-5")).toBe("fable")
-    // The static catalog is only a cold-start picker (the real list is
-    // runtime-discovered), so unknown ids pass through for the harness to
-    // validate; only empty input falls back.
+  test("preserves exact Claude ids and removes context markers from stored selections", () => {
+    expect(normalizeClaudeModelId("claude-opus-4-8")).toBe("claude-opus-4-8")
+    expect(normalizeClaudeModelId("claude-opus-4-8[1m]")).toBe("claude-opus-4-8")
+    expect(normalizeClaudeModelId("claude-sonnet-4-6")).toBe("claude-sonnet-4-6")
+    expect(normalizeClaudeModelId("claude-haiku-4-5-20251001")).toBe("claude-haiku-4-5-20251001")
+    expect(normalizeClaudeModelId("claude-fable-5")).toBe("claude-fable-5")
     expect(normalizeClaudeModelId("claude-mystery-9")).toBe("claude-mystery-9")
-    expect(normalizeClaudeModelId("")).toBe("opus")
-    expect(normalizeClaudeModelId(undefined)).toBe("opus")
+    expect(normalizeClaudeModelId("")).toBe("claude-opus-5")
+    expect(normalizeClaudeModelId(undefined)).toBe("claude-opus-5")
   })
 
   test("passes Cursor model ids through and folds -fast back into the base id", () => {
@@ -108,11 +104,19 @@ describe("shared model normalization", () => {
     expect(getCodexReasoningOptions("gpt-5.6-sol").find((option) => option.id === "ultra")?.description).toBe("Delegates to subagents more")
   })
 
-  test("uses declarative metadata for Claude max-effort support", () => {
-    expect(supportsClaudeMaxReasoningEffort("claude-opus-4-8")).toBe(true)
-    expect(supportsClaudeMaxReasoningEffort("opus")).toBe(true)
-    expect(supportsClaudeMaxReasoningEffort("fable")).toBe(false)
-    expect(supportsClaudeMaxReasoningEffort("claude-sonnet-4-6")).toBe(false)
+  test("uses exact Claude effort metadata", () => {
+    expect(getClaudeReasoningOptions("fable").map((option) => option.id)).toEqual([
+      "low", "medium", "high", "xhigh", "max",
+    ])
+    expect(getClaudeReasoningOptions("claude-opus-4-8").map((option) => option.id)).toEqual([
+      "low", "medium", "high", "xhigh", "max",
+    ])
+    expect(getClaudeReasoningOptions("claude-opus-4-6").map((option) => option.id)).toEqual([
+      "low", "medium", "high", "max",
+    ])
+    expect(getClaudeReasoningOptions("claude-opus-4-5-20251101")).toEqual([])
+    expect(normalizeClaudeReasoningEffort("claude-opus-4-6", "xhigh")).toBe("high")
+    expect(normalizeClaudeReasoningEffort("claude-opus-4-6", "max")).toBe("max")
   })
 
   test("derives display labels from bare model ids", () => {
@@ -132,9 +136,7 @@ describe("shared model normalization", () => {
 
   test("resolves model labels via catalog id, alias, or derived fallback", () => {
     const claudeModels = PROVIDERS.find((provider) => provider.id === "claude")?.models
-    expect(resolveModelLabel(claudeModels, "opus")).toBe("Opus")
-    // Version-pinned ids (old transcripts, SDK init messages) keep their
-    // derived versioned label rather than collapsing to the alias label.
+    expect(resolveModelLabel(claudeModels, "opus")).toBe("Opus 5")
     expect(resolveModelLabel(claudeModels, "claude-opus-4-8")).toBe("Opus 4.8")
     expect(resolveModelLabel(claudeModels, "claude-opus-4-8[1m]")).toBe("Opus 4.8")
     expect(resolveModelLabel(claudeModels, "some-new-model")).toBe("Some New Model")

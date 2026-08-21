@@ -93,7 +93,7 @@ describe("provider catalog normalization", () => {
         contextWindow: "1m",
       },
     })).toMatchObject({
-      reasoningEffort: "medium",
+      reasoningEffort: "high",
     })
   })
 
@@ -223,84 +223,95 @@ describe("provider catalog normalization", () => {
 
   test("normalizes server model ids through the shared alias catalog", () => {
     expect(normalizeServerModel("codex")).toBe("gpt-5.6-sol")
-    expect(normalizeServerModel("claude", "fable")).toBe("fable")
-    expect(normalizeServerModel("claude", "opus")).toBe("opus")
-    // Version-pinned ids persisted by older Kanna versions fold into the alias.
-    expect(normalizeServerModel("claude", "claude-opus-4-8")).toBe("opus")
-    expect(normalizeServerModel("claude", "claude-haiku-4-5-20251001")).toBe("haiku")
+    expect(normalizeServerModel("claude", "fable")).toBe("claude-fable-5")
+    expect(normalizeServerModel("claude", "opus")).toBe("claude-opus-5")
+    expect(normalizeServerModel("claude", "claude-opus-4-8")).toBe("claude-opus-4-8")
+    expect(normalizeServerModel("claude", "claude-haiku-4-5-20251001")).toBe("claude-haiku-4-5-20251001")
     expect(normalizeServerModel("codex", "gpt-5-codex")).toBe("gpt-5.3-codex")
     expect(normalizeServerModel("codex", "gpt-5.6")).toBe("gpt-5.6-sol")
   })
 
   test("resolves Claude API model ids for 1m context window", () => {
-    expect(resolveClaudeApiModelId("opus", "1m")).toBe("opus[1m]")
-    expect(resolveClaudeApiModelId("fable", "200k")).toBe("fable")
-    expect(resolveClaudeApiModelId("sonnet", "200k")).toBe("sonnet")
-    // Version-pinned ids still resolve their window via the family alias.
+    expect(resolveClaudeApiModelId("claude-opus-5", "1m")).toBe("claude-opus-5[1m]")
+    expect(resolveClaudeApiModelId("claude-fable-5", "200k")).toBe("claude-fable-5")
+    expect(resolveClaudeApiModelId("claude-sonnet-5", "200k")).toBe("claude-sonnet-5")
     expect(resolveClaudeApiModelId("claude-opus-4-8", "1m")).toBe("claude-opus-4-8[1m]")
 
-    // A stored "1m" preference never leaks a [1m] suffix onto models without
-    // context window options — it's clamped at resolution time.
-    expect(resolveClaudeApiModelId("fable", "1m")).toBe("fable")
-    expect(resolveClaudeApiModelId("haiku", "1m")).toBe("haiku")
+    expect(resolveClaudeApiModelId("claude-fable-5", "1m")).toBe("claude-fable-5")
+    expect(resolveClaudeApiModelId("claude-haiku-4-5-20251001", "1m"))
+      .toBe("claude-haiku-4-5-20251001")
   })
 
-  test("rebuilds the Claude picker from the SDK model list, labeled by resolved model", () => {
-    // A real supportedModels() shape: a "default" role row sharing its
-    // resolved model with the "sonnet" row, versionless display names, no
-    // fable row on this account.
+  test("merges exact Claude SDK models and their effort metadata", () => {
     expect(applyClaudeSdkModels([
-      { value: "default", resolvedModel: "claude-sonnet-5", displayName: "Default (recommended)", supportsEffort: true },
-      { value: "sonnet", resolvedModel: "claude-sonnet-5", displayName: "Sonnet", supportsEffort: true },
-      { value: "opus", resolvedModel: "claude-opus-5", displayName: "Opus", supportsEffort: true, supportsFastMode: true },
+      {
+        value: "default",
+        resolvedModel: "claude-opus-5[1m]",
+        displayName: "Default (recommended)",
+        supportsEffort: true,
+        supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"],
+        supportsFastMode: true,
+      },
+      {
+        value: "opus[1m]",
+        resolvedModel: "claude-opus-5[1m]",
+        displayName: "Opus (1M context)",
+        supportsEffort: true,
+        supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"],
+        supportsFastMode: true,
+      },
+      {
+        value: "claude-fable-5[1m]",
+        resolvedModel: "claude-fable-5",
+        displayName: "Fable",
+        supportsEffort: true,
+        supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"],
+      },
+      {
+        value: "sonnet",
+        resolvedModel: "claude-sonnet-5",
+        displayName: "Sonnet",
+        supportsEffort: true,
+        supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"],
+      },
       { value: "haiku", resolvedModel: "claude-haiku-4-5-20251001", displayName: "Haiku" },
     ])).toBe(true)
 
     const claude = SERVER_PROVIDERS.find((provider) => provider.id === "claude")
-    // One entry per family in static-catalog order; the "default" role row
-    // folds into sonnet instead of appearing as its own entry, and fable is
-    // absent because the account has no fable row.
-    expect(claude?.models.map((model) => [model.id, model.label])).toEqual([
-      ["opus", "Opus 5"],
-      ["sonnet", "Sonnet 5"],
-      ["haiku", "Haiku 4.5"],
+    expect(claude?.models.slice(0, 3).map((model) => [model.id, model.label])).toEqual([
+      ["claude-fable-5", "Fable 5"],
+      ["claude-opus-5", "Opus 5"],
+      ["claude-sonnet-5", "Sonnet 5"],
     ])
-    // The recommended ("default") row drives the default model.
-    expect(claude?.defaultModel).toBe("sonnet")
-    // Static per-family metadata the SDK doesn't report is preserved.
-    const opus = claude?.models.find((model) => model.id === "opus")
-    expect(opus?.supportsMaxReasoningEffort).toBe(true)
+    expect(claude?.models.some((model) => model.id === "claude-opus-4-6")).toBe(true)
+    expect(claude?.defaultModel).toBe("claude-opus-5")
+    const fable = claude?.models.find((model) => model.id === "claude-fable-5")
+    expect(fable?.efforts).toEqual(["low", "medium", "high", "xhigh", "max"])
+    expect(fable?.contextWindowTokens).toBe(1_000_000)
+    const opus = claude?.models.find((model) => model.id === "claude-opus-5")
+    expect(opus?.efforts).toEqual(["low", "medium", "high", "xhigh", "max"])
     expect(opus?.supportsFastMode).toBe(true)
     expect(opus?.contextWindowOptions?.map((option) => option.id)).toEqual(["1m", "200k"])
-    expect(claude?.models.find((model) => model.id === "haiku")?.contextWindowOptions).toBeUndefined()
+    expect(claude?.models.find((model) => model.id === "claude-haiku-4-5-20251001")?.supportsEffort).toBe(false)
   })
 
-  test("Claude rebuild keeps fable's fixed window, folds [1m] rows, and admits new families", () => {
+  test("Claude merge folds context variants and admits new exact models", () => {
     expect(applyClaudeSdkModels([
-      { value: "fable", resolvedModel: "claude-fable-5", displayName: "Fable" },
+      { value: "claude-fable-5[1m]", resolvedModel: "claude-fable-5", displayName: "Fable" },
       { value: "sonnet", resolvedModel: "claude-sonnet-5", displayName: "Sonnet", supportsEffort: true },
       { value: "sonnet[1m]", resolvedModel: "claude-sonnet-5[1m]", displayName: "Sonnet (1M context)", supportsEffort: true },
-      // A family Kanna has never heard of still gets a picker entry.
       { value: "nova", resolvedModel: "claude-nova-2", displayName: "Nova" },
     ])).toBe(true)
 
     const claude = SERVER_PROVIDERS.find((provider) => provider.id === "claude")
-    expect(claude?.models.map((model) => [model.id, model.label])).toEqual([
-      ["fable", "Fable 5"],
-      ["sonnet", "Sonnet 5"],
-      ["nova", "Nova 2"],
-    ])
-    // Fable keeps its pinned fixed window; the [1m] variant row collapses
-    // into sonnet's context window selector rather than its own entry.
-    expect(claude?.models.find((model) => model.id === "fable")?.contextWindowTokens).toBe(1_000_000)
-    expect(claude?.models.find((model) => model.id === "sonnet")?.contextWindowOptions?.map((option) => option.id))
-      .toEqual(["1m", "200k"])
-    // No "default" row → the default model is left alone.
-    expect(claude?.defaultModel).toBe("sonnet")
+    expect(claude?.models.find((model) => model.id === "claude-fable-5")?.contextWindowTokens).toBe(1_000_000)
+    expect(claude?.models.find((model) => model.id === "claude-sonnet-5")?.contextWindowTokens).toBe(1_000_000)
+    expect(claude?.models.at(-1)).toMatchObject({ id: "claude-nova-2", label: "Nova 2" })
+    expect(claude?.defaultModel).toBe("claude-sonnet-5")
 
     // Re-applying the same list reports no change.
     expect(applyClaudeSdkModels([
-      { value: "fable", resolvedModel: "claude-fable-5", displayName: "Fable" },
+      { value: "claude-fable-5[1m]", resolvedModel: "claude-fable-5", displayName: "Fable" },
       { value: "sonnet", resolvedModel: "claude-sonnet-5", displayName: "Sonnet", supportsEffort: true },
       { value: "sonnet[1m]", resolvedModel: "claude-sonnet-5[1m]", displayName: "Sonnet (1M context)", supportsEffort: true },
       { value: "nova", resolvedModel: "claude-nova-2", displayName: "Nova" },

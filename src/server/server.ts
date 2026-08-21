@@ -206,6 +206,9 @@ export async function startKannaServer(options: StartKannaServerOptions = {}) {
       if (service === "cursor") {
         void agent.refreshCursorModelCatalog()
       }
+      if (service === "claude") {
+        void agent.refreshClaudeModelCatalog().catch(() => undefined)
+      }
       if (service === "gh") {
         // Never let a cached "unauthenticated" repo list outlive the sign-in
         // (clone palette / home repos section fetch through this cache).
@@ -237,6 +240,7 @@ export async function startKannaServer(options: StartKannaServerOptions = {}) {
   // Overlay the account's live Cursor model list on the static catalog
   // (no-op when cursor-agent is missing or logged out); broadcasts on change.
   void agent.refreshCursorModelCatalog()
+  void agent.refreshClaudeModelCatalog().catch(() => undefined)
   // Seed the pi provider's model picker from saved fave models before the
   // first snapshots go out.
   void readLlmProviderSnapshot()
