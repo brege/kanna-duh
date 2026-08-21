@@ -94,9 +94,9 @@ gh workflow run release.yml \
   --field notes="<changelog content>"
 ```
 
-The workflow creates the tag and GitHub Release, then dispatches `publish.yml`. That workflow builds the client, packs `kanna-duh.tgz`, and uploads the install tarball and export-viewer assets to the release. Nothing is published to npm.
+The workflow creates or updates the tag and GitHub Release, then calls `publish.yml`. That workflow builds the client, packs `kanna-duh.tgz`, and uploads the install tarball and export-viewer assets to the release. Nothing is published to npm.
 
-Monitor both workflows and verify the release contains `kanna-duh.tgz` before reporting success. Tell the user the new version number, release URL, and install command:
+Monitor the release workflow and verify the release contains `kanna-duh.tgz` before reporting success. Tell the user the new version number, release URL, and install command:
 
 ```bash
 bun install --global https://github.com/brege/kanna-duh/releases/latest/download/kanna-duh.tgz

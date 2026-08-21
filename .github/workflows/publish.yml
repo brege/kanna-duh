@@ -2,12 +2,17 @@ name: Publish release assets
 
 # Runs when a release is published by a user. Releases created with the
 # repo's GITHUB_TOKEN (the release.yml workflow) don't emit workflow-
-# triggering events, so release.yml chains into this via workflow_dispatch.
+# triggering events, so release.yml calls this as a reusable workflow.
 # Builds the client bundles, then uploads the install tarball and the
 # export viewer assets to the GitHub release. Nothing goes to npm.
 on:
   release:
     types: [published]
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       tag:
@@ -22,9 +27,7 @@ jobs:
     env:
       RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.release.tag_name || inputs.tag }}
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.release.tag_name || inputs.tag }}
 

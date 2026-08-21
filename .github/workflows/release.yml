@@ -3,7 +3,7 @@ name: Create Release
 # Creates the version tag + GitHub release from a dispatch, for environments
 # that can push branches but not tags (e.g. remote agent sessions). A release
 # created with GITHUB_TOKEN doesn't fire `on: release` workflows, so this
-# explicitly chains into publish.yml afterwards.
+# calls publish.yml as a reusable workflow afterwards.
 on:
   workflow_dispatch:
     inputs:
@@ -20,9 +20,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      actions: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Verify tag matches package version
         env:
@@ -31,15 +30,22 @@ jobs:
           PACKAGE_VERSION="$(node -p "require('./package.json').version")"
           test "$TAG" = "v${PACKAGE_VERSION}"
 
-      - name: Create release (creates the tag at this commit)
+      - name: Create or update release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag }}
           NOTES: ${{ inputs.notes }}
-        run: gh release create "$TAG" --target "$GITHUB_SHA" --title "$TAG" --notes "$NOTES"
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --title "$TAG" --notes "$NOTES"
+          else
+            gh release create "$TAG" --target "$GITHUB_SHA" --title "$TAG" --notes "$NOTES"
+          fi
 
-      - name: Trigger release asset build
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ inputs.tag }}
-        run: gh workflow run publish.yml -f tag="$TAG"
+  assets:
+    needs: release
+    permissions:
+      contents: write
+    uses: ./.github/workflows/publish.yml
+    with:
+      tag: ${{ inputs.tag }}
