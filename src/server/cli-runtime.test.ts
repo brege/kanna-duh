@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
-import { compareVersions, classifyInstallVersionFailure, parseArgs, runCli } from "./cli-runtime"
+import {
+  compareVersions,
+  classifyReleaseInstallFailure,
+  fetchLatestReleaseVersion,
+  getReleaseInstallArgs,
+  parseArgs,
+  runCli,
+} from "./cli-runtime"
 import { CLI_SUPPRESS_OPEN_ONCE_ENV_VAR } from "./restart"
 
 const originalRuntimeProfile = process.env.KANNA_RUNTIME_PROFILE
@@ -42,8 +49,8 @@ function createDeps(overrides: Partial<Parameters<typeof runCli>[1]> = {}) {
         command: string
       }
     }>,
-    fetchLatestVersion: [] as string[],
-    installVersion: [] as Array<{ packageName: string; version: string }>,
+    fetchLatestVersion: 0,
+    installVersion: [] as string[],
     openUrl: [] as string[],
     log: [] as string[],
     warn: [] as string[],
@@ -62,12 +69,12 @@ function createDeps(overrides: Partial<Parameters<typeof runCli>[1]> = {}) {
         stop: async () => {},
       }
     },
-    fetchLatestVersion: async (packageName) => {
-      calls.fetchLatestVersion.push(packageName)
+    fetchLatestVersion: async () => {
+      calls.fetchLatestVersion += 1
       return "0.3.0"
     },
-    installVersion: (packageName, version) => {
-      calls.installVersion.push({ packageName, version })
+    installVersion: (version) => {
+      calls.installVersion.push(version)
       return {
         ok: true,
         errorCode: null,
@@ -261,15 +268,39 @@ describe("compareVersions", () => {
   })
 })
 
-describe("classifyInstallVersionFailure", () => {
-  test("maps version propagation failures to a user-facing retry message", () => {
-    expect(classifyInstallVersionFailure('error: No version matching "0.13.3" found for specifier "kanna-duh"')).toEqual({
+describe("fetchLatestReleaseVersion", () => {
+  test("reads a semantic version from the latest GitHub release", async () => {
+    const fetchImpl = async (input: string | URL | Request) => {
+      expect(String(input)).toBe("https://api.github.com/repos/brege/kanna-duh/releases/latest")
+      return new Response(JSON.stringify({ tag_name: "v0.63.1" }))
+    }
+
+    expect(await fetchLatestReleaseVersion(fetchImpl)).toBe("0.63.1")
+  })
+
+  test("rejects release tags that are not semantic versions", async () => {
+    const fetchImpl = async () => new Response(JSON.stringify({ tag_name: "nightly" }))
+    await expect(fetchLatestReleaseVersion(fetchImpl)).rejects.toThrow("not a semantic version")
+  })
+})
+
+describe("classifyReleaseInstallFailure", () => {
+  test("maps missing release assets to a user-facing retry message", () => {
+    expect(classifyReleaseInstallFailure("error: HTTP 404 while downloading kanna-duh.tgz")).toEqual({
       ok: false,
       errorCode: "version_not_live_yet",
-      userTitle: "Update not live yet",
-      userMessage: "This update is still propagating. Try again in a few minutes.",
+      userTitle: "Update asset not ready",
+      userMessage: "This release is still building its install asset. Try again in a few minutes.",
     })
   })
+})
+
+test("release installer uses the exact GitHub asset", () => {
+  expect(getReleaseInstallArgs("0.63.1")).toEqual([
+    "install",
+    "--global",
+    "https://github.com/brege/kanna-duh/releases/download/v0.63.1/kanna-duh.tgz",
+  ])
 })
 
 describe("runCli", () => {
@@ -279,20 +310,20 @@ describe("runCli", () => {
     const result = await runCli(["--version"], deps)
 
     expect(result).toEqual({ kind: "exited", code: 0 })
-    expect(calls.fetchLatestVersion).toEqual([])
+    expect(calls.fetchLatestVersion).toBe(0)
     expect(calls.startServer).toEqual([])
     expect(calls.log).toEqual(["0.3.0"])
   })
 
-  test("starts normally without contacting the registry", async () => {
+  test("starts normally without checking GitHub Releases", async () => {
     const { calls, deps } = createDeps()
     process.env.KANNA_RUNTIME_PROFILE = "prod"
 
     const result = await runCli(["--port", "4000", "--no-open"], deps)
 
     expect(result.kind).toBe("started")
-    // Launching never checks npm or installs anything on its own.
-    expect(calls.fetchLatestVersion).toEqual([])
+    // Launching never checks releases or installs anything on its own.
+    expect(calls.fetchLatestVersion).toBe(0)
     expect(calls.installVersion).toEqual([])
     expect(calls.startServer).toHaveLength(1)
     expect(calls.startServer[0]).toMatchObject({
@@ -480,8 +511,8 @@ describe("runCli", () => {
 
   test("a newer published version never self-installs on startup", async () => {
     const { calls, deps } = createDeps({
-      fetchLatestVersion: async (packageName) => {
-        calls.fetchLatestVersion.push(packageName)
+      fetchLatestVersion: async () => {
+        calls.fetchLatestVersion += 1
         return "0.4.0"
       },
     })
@@ -489,7 +520,7 @@ describe("runCli", () => {
     const result = await runCli(["--port", "4000", "--no-open"], deps)
 
     expect(result.kind).toBe("started")
-    expect(calls.fetchLatestVersion).toEqual([])
+    expect(calls.fetchLatestVersion).toBe(0)
     expect(calls.installVersion).toEqual([])
     expect(calls.startServer).toHaveLength(1)
   })
@@ -525,4 +556,3 @@ describe("runCli single-instance guard", () => {
     if (result.kind === "started") await result.stop()
   })
 })
-

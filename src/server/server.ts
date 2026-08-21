@@ -95,8 +95,8 @@ export interface StartKannaServerOptions {
   onMigrationProgress?: (message: string) => void
   update?: {
     version: string
-    fetchLatestVersion: (packageName: string) => Promise<string>
-    installVersion: (packageName: string, version: string) => UpdateInstallAttemptResult
+    fetchLatestVersion: () => Promise<string>
+    installVersion: (version: string) => UpdateInstallAttemptResult
   }
 }
 

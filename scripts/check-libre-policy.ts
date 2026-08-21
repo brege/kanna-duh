@@ -120,6 +120,25 @@ interface Violation {
   text: string
 }
 
+const REQUIRED_IDENTITIES = [
+  {
+    file: "src/shared/branding.ts",
+    text: 'export const PACKAGE_NAME = "kanna-duh"',
+  },
+  {
+    file: "src/shared/branding.ts",
+    text: 'export const GITHUB_REPOSITORY = "brege/kanna-duh"',
+  },
+  {
+    file: "src/shared/branding.ts",
+    text: 'export const RELEASE_ASSET_NAME = `${PACKAGE_NAME}.tgz`',
+  },
+  {
+    file: "package.json",
+    text: '"url": "git+https://github.com/brege/kanna-duh.git"',
+  },
+] as const
+
 async function collectFiles(dir: string): Promise<string[]> {
   const absolute = path.join(ROOT, dir)
   let entries
@@ -193,6 +212,18 @@ for (const file of files) {
   const lines = contents.split("\n")
   checkRules(file, lines, violations)
   checkHosts(file, lines, violations)
+}
+
+for (const required of REQUIRED_IDENTITIES) {
+  const contents = await readFile(path.join(ROOT, required.file), "utf8")
+  if (contents.includes(required.text)) continue
+  violations.push({
+    file: required.file,
+    line: 1,
+    rule: "fork-identity",
+    reason: "required fork release identity is missing",
+    text: required.text,
+  })
 }
 
 if (violations.length > 0) {

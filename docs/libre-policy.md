@@ -36,17 +36,18 @@ Attribution had no opt-out and analytics defaulted to on, so removal is the only
 
 ## Fork identity
 
-The update path installs whatever the package name resolves to, so both identifiers are repointed at this fork. Neither may be set back to an upstream value:
+The release URL, archive name, and package metadata use the identifiers below. Each identifier must name this fork:
 
 | Identifier | Location | Value |
 | --- | --- | --- |
 | `PACKAGE_NAME` | `src/shared/branding.ts` | `kanna-duh` |
-| `GITHUB_RELEASES_URL` | `src/client/app/settings/ChangelogSection.tsx` | `brege/kanna-duh` releases |
+| `GITHUB_REPOSITORY` | `src/shared/branding.ts` | `brege/kanna-duh` |
+| `RELEASE_ASSET_NAME` | `src/shared/branding.ts` | `kanna-duh.tgz` |
 | `repository.url` | `package.json` | `github.com/brege/kanna-duh` |
 
-If `PACKAGE_NAME` ever reverts to `kanna-code`, the Settings update action runs `bun install -g kanna-code@latest` and replaces this fork with upstream, restoring every anti-feature listed above. Treat that as the single most important line in the repository.
+The Settings update action reads `GITHUB_REPOSITORY` and installs `RELEASE_ASSET_NAME` from that repository's exact version tag. Repointing either identifier can replace this fork with another distribution and restore removed anti-features. Treat both as policy-sensitive lines.
 
-`kanna-duh` is not published to npm yet, so the update check will not resolve until a release exists. That is a broken feature, not a data leak: the request goes to the public npm registry and carries no identifier.
+Release checks use the public GitHub API and carry no installation or user identifier. Installation happens only after the user selects Update.
 
 The global command is still `kanna`, which collides with an installed upstream `kanna-code`. Remove that package before installing this one.
 

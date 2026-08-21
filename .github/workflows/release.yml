@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Version tag to create (e.g. v0.56.1); must match package.json on the target ref"
+        description: "Version tag to create (e.g. v1.2.3); must match package.json on the target ref"
         required: true
       notes:
         description: "Release notes (markdown)"
@@ -38,7 +38,7 @@ jobs:
           NOTES: ${{ inputs.notes }}
         run: gh release create "$TAG" --target "$GITHUB_SHA" --title "$TAG" --notes "$NOTES"
 
-      - name: Trigger npm publish
+      - name: Trigger release asset build
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag }}

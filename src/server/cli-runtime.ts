@@ -4,7 +4,14 @@ import { readFileSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import path from "node:path"
 import { hasCommand, spawnDetached } from "./process-utils"
-import { APP_NAME, CLI_COMMAND, getDataDirDisplay, LOG_PREFIX } from "../shared/branding"
+import {
+  APP_NAME,
+  CLI_COMMAND,
+  getDataDirDisplay,
+  getReleaseAssetUrl,
+  GITHUB_REPOSITORY,
+  LOG_PREFIX,
+} from "../shared/branding"
 import type { ShareMode } from "../shared/share"
 import { assertNoHostOverride, getShareCliFlag, isShareEnabled, isTokenShareMode } from "../shared/share"
 import type { UpdateInstallErrorCode } from "../shared/types"
@@ -24,8 +31,8 @@ export interface CliOptions {
 
 export interface CliUpdateOptions {
   version: string
-  fetchLatestVersion: (packageName: string) => Promise<string>
-  installVersion: (packageName: string, version: string) => UpdateInstallAttemptResult
+  fetchLatestVersion: () => Promise<string>
+  installVersion: (version: string) => UpdateInstallAttemptResult
   argv: string[]
   command: string
 }
@@ -55,8 +62,8 @@ export interface CliRuntimeDeps {
     onMigrationProgress?: (message: string) => void
     trustProxy?: boolean
   }) => Promise<{ port: number; stop: () => Promise<void> }>
-  fetchLatestVersion: (packageName: string) => Promise<string>
-  installVersion: (packageName: string, version: string) => UpdateInstallAttemptResult
+  fetchLatestVersion: () => Promise<string>
+  installVersion: (version: string) => UpdateInstallAttemptResult
   openUrl: (url: string) => void
   log: (message: string) => void
   warn: (message: string) => void
@@ -339,14 +346,40 @@ export async function fetchLatestPackageVersion(packageName: string) {
   return payload.version
 }
 
-export function classifyInstallVersionFailure(output: string): UpdateInstallAttemptResult {
+type FetchRelease = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
+
+export async function fetchLatestReleaseVersion(fetchImpl: FetchRelease = fetch) {
+  const response = await fetchImpl(`https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/latest`, {
+    headers: {
+      Accept: "application/vnd.github+json",
+    },
+  })
+  if (!response.ok) {
+    throw new Error(`GitHub releases request failed with status ${response.status}`)
+  }
+
+  const payload = await response.json() as { tag_name?: unknown }
+  if (typeof payload.tag_name !== "string" || !payload.tag_name.trim()) {
+    throw new Error("GitHub release did not include a tag")
+  }
+  const tag = payload.tag_name.trim()
+  const version = tag[0]?.toLowerCase() === "v" ? tag.slice(1) : tag
+  const coreParts = (version.split("-")[0] ?? "").split(".")
+  if (coreParts.length !== 3 || coreParts.some((part) => !part || !part.split("").every((char) => char >= "0" && char <= "9"))) {
+    throw new Error(`GitHub release tag is not a semantic version: ${tag}`)
+  }
+  return version
+}
+
+export function classifyReleaseInstallFailure(output: string): UpdateInstallAttemptResult {
   const normalizedOutput = output.trim()
-  if (/No version matching .* found|failed to resolve/i.test(normalizedOutput)) {
+  // GitHub and Bun use different wording for an asset that is not uploaded yet.
+  if (/\b404\b|not found|failed to download|failed to resolve/i.test(normalizedOutput)) {
     return {
       ok: false,
       errorCode: "version_not_live_yet",
-      userTitle: "Update not live yet",
-      userMessage: "This update is still propagating. Try again in a few minutes.",
+      userTitle: "Update asset not ready",
+      userMessage: "This release is still building its install asset. Try again in a few minutes.",
     }
   }
 
@@ -395,7 +428,11 @@ export function repairBunGlobalManifest(globalDir = bunGlobalDir()): boolean {
   }
 }
 
-export function installPackageVersion(packageName: string, version: string) {
+export function getReleaseInstallArgs(version: string) {
+  return ["install", "--global", getReleaseAssetUrl(version)]
+}
+
+export function installReleaseVersion(version: string) {
   if (!hasCommand("bun")) {
     return {
       ok: false,
@@ -410,7 +447,7 @@ export function installPackageVersion(packageName: string, version: string) {
   // machines that hit 0.57.0's nightly bug can still auto-update.
   repairBunGlobalManifest()
 
-  const result = spawnSync("bun", ["install", "-g", `${packageName}@${version}`], {
+  const result = spawnSync("bun", getReleaseInstallArgs(version), {
     stdio: ["ignore", "pipe", "pipe"],
     encoding: "utf8",
   })
@@ -427,5 +464,5 @@ export function installPackageVersion(packageName: string, version: string) {
     } satisfies UpdateInstallAttemptResult
   }
 
-  return classifyInstallVersionFailure(`${stdout}\n${stderr}`)
+  return classifyReleaseInstallFailure(`${stdout}\n${stderr}`)
 }

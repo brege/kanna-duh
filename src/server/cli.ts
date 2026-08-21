@@ -1,8 +1,8 @@
 import process from "node:process"
 import { LOG_PREFIX } from "../shared/branding"
 import {
-  fetchLatestPackageVersion,
-  installPackageVersion,
+  fetchLatestReleaseVersion,
+  installReleaseVersion,
   openUrl,
   runCli,
 } from "./cli-runtime"
@@ -31,8 +31,8 @@ const result = await runCli(argv, {
 
     return started
   },
-  fetchLatestVersion: fetchLatestPackageVersion,
-  installVersion: installPackageVersion,
+  fetchLatestVersion: fetchLatestReleaseVersion,
+  installVersion: installReleaseVersion,
   openUrl,
   log: console.log,
   warn: console.warn,

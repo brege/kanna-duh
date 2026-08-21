@@ -3,6 +3,8 @@ export const CLI_COMMAND = "kanna"
 export const DATA_ROOT_NAME = ".kanna"
 export const DEV_DATA_ROOT_NAME = ".kanna-dev"
 export const PACKAGE_NAME = "kanna-duh"
+export const GITHUB_REPOSITORY = "brege/kanna-duh"
+export const RELEASE_ASSET_NAME = `${PACKAGE_NAME}.tgz`
 export const RUNTIME_PROFILE_ENV_VAR = "KANNA_RUNTIME_PROFILE"
 // Read version from package.json — JSON import works in both Bun and Vite
 import pkg from "../../package.json"
@@ -66,4 +68,8 @@ export function getLlmProviderFilePath(homeDir: string, env: RuntimeEnv = getRun
 
 export function getCliInvocation(arg?: string) {
   return arg ? `${CLI_COMMAND} ${arg}` : CLI_COMMAND
+}
+
+export function getReleaseAssetUrl(version: string) {
+  return `https://github.com/${GITHUB_REPOSITORY}/releases/download/v${version}/${RELEASE_ASSET_NAME}`
 }

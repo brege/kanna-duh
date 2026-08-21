@@ -51,13 +51,13 @@ describe("UpdateManager", () => {
     const manager = new UpdateManager({
       currentVersion: "0.12.0",
       fetchLatestVersion: async () => "0.13.0",
-      installVersion: (_packageName, version) => {
+      installVersion: (version) => {
         installedVersion = version
         return {
           ok: false,
           errorCode: "version_not_live_yet",
-          userTitle: "Update not live yet",
-          userMessage: "This update is still propagating. Try again in a few minutes.",
+          userTitle: "Update asset not ready",
+          userMessage: "This release is still building its install asset. Try again in a few minutes.",
         }
       },
     })
@@ -68,8 +68,8 @@ describe("UpdateManager", () => {
       ok: false,
       action: "restart",
       errorCode: "version_not_live_yet",
-      userTitle: "Update not live yet",
-      userMessage: "This update is still propagating. Try again in a few minutes.",
+      userTitle: "Update asset not ready",
+      userMessage: "This release is still building its install asset. Try again in a few minutes.",
     })
     expect(installedVersion === "0.13.0").toBe(true)
     expect(manager.getSnapshot().status).toBe("error")

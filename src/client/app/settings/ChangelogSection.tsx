@@ -2,13 +2,14 @@ import { useEffect, useState } from "react"
 import { DownloadCloud, Loader2 } from "lucide-react"
 import Markdown from "react-markdown"
 import remarkGfm from "remark-gfm"
+import { GITHUB_REPOSITORY } from "../../../shared/branding"
 import type { UpdateSnapshot } from "../../../shared/types"
 import { markdownComponents } from "../../components/messages/shared"
 import { buttonVariants } from "../../components/ui/button"
 import { SettingsHeaderButton } from "../../components/ui/settings-header-button"
 import { cn } from "../../lib/utils"
 
-const GITHUB_RELEASES_URL = "https://api.github.com/repos/brege/kanna-duh/releases"
+const GITHUB_RELEASES_URL = `https://api.github.com/repos/${GITHUB_REPOSITORY}/releases`
 const CHANGELOG_CACHE_TTL_MS = 5 * 60 * 1000
 
 export type GithubRelease = {

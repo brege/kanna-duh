@@ -14,8 +14,8 @@
 
 <br />
 
-> **Status: in testing. Not published to npm.**
-> There is no `kanna-duh` package on the registry yet, so install from source (see [Install](#install)). The in-app update check points at the npm package name and will not resolve until a release is published. There is no website: this repository is the only home.
+> **Status: in testing. Distributed through GitHub Releases, not npm.**
+> Release tarballs contain the prebuilt client and the standalone Bun server. There is no website: this repository is the only home.
 
 <br />
 
@@ -53,14 +53,20 @@ Requires [Bun](https://bun.sh) v1.3.5+. If Bun isn't installed:
 curl -fsSL https://bun.sh/install | bash
 ```
 
-Build and install from source:
+Install the latest prebuilt release:
+
+```bash
+bun install --global https://github.com/brege/kanna-duh/releases/latest/download/kanna-duh.tgz
+```
+
+Or build and install from source:
 
 ```bash
 git clone https://github.com/brege/kanna-duh.git
 cd kanna-duh
 bun install
 bun run build
-bun install -g .
+bun install --global .
 ```
 
 Then run from any project directory:
@@ -72,6 +78,8 @@ kanna
 It opens in your browser at [`localhost:3210`](http://localhost:3210).
 
 The global command is still `kanna`. If you have upstream `kanna-code` installed, uninstall it first (`bun remove -g kanna-code`), since both provide the same command name.
+
+The Settings update action checks GitHub Releases and installs the same prebuilt tarball before restarting Kanna.
 
 ## Features
 

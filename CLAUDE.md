@@ -64,9 +64,9 @@ enforces the mechanical part. Before adding anything that talks to the network,
 persists an identifier, writes to a commit or PR, or appends to a provider
 prompt, read it.
 
-- `PACKAGE_NAME` in `src/shared/branding.ts` is `kanna-duh`. If it ever reverts
-  to `kanna-code`, the Settings update action installs upstream over this fork
-  and restores every removed anti-feature.
+- `GITHUB_REPOSITORY` and `RELEASE_ASSET_NAME` in `src/shared/branding.ts`
+  define the Settings update source. Repointing either can install another
+  distribution over this fork and restore removed anti-features.
 - New outbound hosts need an explicit entry in the allowlist inside
   `scripts/check-libre-policy.ts`. That edit is meant to be visible in review.
 - On an upstream rebase, run `bun run check:policy` first. It catches verbatim

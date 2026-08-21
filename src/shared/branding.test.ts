@@ -5,6 +5,7 @@ import {
   getDataRootName,
   getKeybindingsFilePath,
   getKeybindingsFilePathDisplay,
+  getReleaseAssetUrl,
   getRuntimeProfile,
 } from "./branding"
 
@@ -28,4 +29,10 @@ describe("runtime profile helpers", () => {
     expect(getKeybindingsFilePath("/tmp/home", env)).toBe("/tmp/home/.kanna-dev/keybindings.json")
     expect(getKeybindingsFilePathDisplay(env)).toBe("~/.kanna-dev/keybindings.json")
   })
+})
+
+test("release asset URL names the exact GitHub tag", () => {
+  expect(getReleaseAssetUrl("0.63.1")).toBe(
+    "https://github.com/brege/kanna-duh/releases/download/v0.63.1/kanna-duh.tgz"
+  )
 })

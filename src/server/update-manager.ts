@@ -1,13 +1,13 @@
 import type { UpdateInstallResult, UpdateSnapshot } from "../shared/types"
-import { APP_NAME, PACKAGE_NAME } from "../shared/branding"
+import { APP_NAME } from "../shared/branding"
 import { compareVersions, type UpdateInstallAttemptResult } from "./cli-runtime"
 
 const UPDATE_CACHE_TTL_MS = 5 * 60 * 1000
 
 export interface UpdateManagerDeps {
   currentVersion: string
-  fetchLatestVersion: (packageName: string) => Promise<string>
-  installVersion: (packageName: string, version: string) => UpdateInstallAttemptResult
+  fetchLatestVersion: () => Promise<string>
+  installVersion: (version: string) => UpdateInstallAttemptResult
   devMode?: boolean
 }
 
@@ -133,7 +133,7 @@ export class UpdateManager {
 
   private async runCheck() {
     try {
-      const latestVersion = await this.deps.fetchLatestVersion(PACKAGE_NAME)
+      const latestVersion = await this.deps.fetchLatestVersion()
       const updateAvailable = compareVersions(this.snapshot.currentVersion, latestVersion) < 0
       const nextSnapshot: UpdateSnapshot = {
         ...this.snapshot,
@@ -197,7 +197,7 @@ export class UpdateManager {
       }
     }
 
-    const installed = this.deps.installVersion(PACKAGE_NAME, targetVersion)
+    const installed = this.deps.installVersion(targetVersion)
     if (!installed.ok) {
       this.setSnapshot({
         ...this.snapshot,
